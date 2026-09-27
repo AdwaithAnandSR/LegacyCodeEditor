@@ -13,9 +13,34 @@
 #error NitroModules cannot be found! Are you sure you installed NitroModules properly?
 #endif
 
+// Forward declaration of `LineEnding` to properly resolve imports.
+namespace margelo::nitro::editorengine { enum class LineEnding; }
+// Forward declaration of `DocumentInfo` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct DocumentInfo; }
+// Forward declaration of `CursorPosition` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct CursorPosition; }
+// Forward declaration of `TextRange` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct TextRange; }
+// Forward declaration of `EditOperation` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct EditOperation; }
+// Forward declaration of `LineInfo` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct LineInfo; }
+// Forward declaration of `SearchResult` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct SearchResult; }
+// Forward declaration of `UndoRedoState` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct UndoRedoState; }
 
-
+#include "LineEnding.hpp"
 #include <string>
+#include "DocumentInfo.hpp"
+#include "CursorPosition.hpp"
+#include "TextRange.hpp"
+#include "EditOperation.hpp"
+#include <vector>
+#include "LineInfo.hpp"
+#include "SearchResult.hpp"
+#include "UndoRedoState.hpp"
+#include <optional>
 
 namespace margelo::nitro::editorengine {
 
@@ -44,12 +69,51 @@ namespace margelo::nitro::editorengine {
 
     public:
       // Properties
-      
+      virtual double getLineCount() = 0;
+      virtual double getCharacterCount() = 0;
+      virtual bool getModified() = 0;
+      virtual LineEnding getLineEnding() = 0;
+      virtual void setLineEnding(LineEnding lineEnding) = 0;
+      virtual double getTabSize() = 0;
+      virtual void setTabSize(double tabSize) = 0;
+      virtual bool getInsertSpaces() = 0;
+      virtual void setInsertSpaces(bool insertSpaces) = 0;
 
     public:
       // Methods
-      virtual void insertText(double index, const std::string& text) = 0;
-      virtual std::string getText() = 0;
+      virtual void loadContent(const std::string& content) = 0;
+      virtual std::string getContent() = 0;
+      virtual DocumentInfo getDocumentInfo() = 0;
+      virtual void markSaved() = 0;
+      virtual CursorPosition insertText(double line, double column, const std::string& text) = 0;
+      virtual void deleteText(const TextRange& range) = 0;
+      virtual CursorPosition replaceText(const TextRange& range, const std::string& newText) = 0;
+      virtual void applyEdits(const std::vector<EditOperation>& edits) = 0;
+      virtual std::string getLine(double lineNumber) = 0;
+      virtual double getLineLength(double lineNumber) = 0;
+      virtual LineInfo getLineInfo(double lineNumber) = 0;
+      virtual std::vector<std::string> getLines(double startLine, double endLine) = 0;
+      virtual void insertLine(double lineNumber, const std::string& text) = 0;
+      virtual void deleteLine(double lineNumber) = 0;
+      virtual std::string getTextInRange(const TextRange& range) = 0;
+      virtual double getOffsetAt(double line, double column) = 0;
+      virtual CursorPosition getPositionAt(double offset) = 0;
+      virtual TextRange getWordRangeAtPosition(double line, double column) = 0;
+      virtual std::vector<SearchResult> findText(const std::string& query, bool caseSensitive, bool wholeWord, bool isRegex) = 0;
+      virtual double findAndReplace(const std::string& query, const std::string& replacement, bool caseSensitive, bool wholeWord, bool isRegex) = 0;
+      virtual void undo() = 0;
+      virtual void redo() = 0;
+      virtual UndoRedoState getUndoRedoState() = 0;
+      virtual void beginUndoGroup() = 0;
+      virtual void endUndoGroup() = 0;
+      virtual void indentLine(double lineNumber) = 0;
+      virtual void outdentLine(double lineNumber) = 0;
+      virtual void indentLines(double startLine, double endLine) = 0;
+      virtual void outdentLines(double startLine, double endLine) = 0;
+      virtual std::optional<CursorPosition> findMatchingBracket(double line, double column) = 0;
+      virtual CursorPosition clampPosition(double line, double column) = 0;
+      virtual bool isPositionValid(double line, double column) = 0;
+      virtual std::string getContentHash() = 0;
 
     protected:
       // Hybrid Setup

@@ -8,7 +8,8 @@
     "scheme": "legacycodeeditor",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.anonymous.LegacyCodeEditor"
     },
     "android": {
       "adaptiveIcon": {
@@ -38,6 +39,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7f34cae3-b89e-4695-b519-d5e4728c6589"
+      }
     }
   }
 }

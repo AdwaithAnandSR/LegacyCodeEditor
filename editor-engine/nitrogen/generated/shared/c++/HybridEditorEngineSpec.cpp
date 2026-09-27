@@ -14,8 +14,48 @@ namespace margelo::nitro::editorengine {
     HybridObject::loadHybridMethods();
     // load custom methods/properties
     registerHybrids(this, [](Prototype& prototype) {
+      prototype.registerHybridGetter("lineCount", &HybridEditorEngineSpec::getLineCount);
+      prototype.registerHybridGetter("characterCount", &HybridEditorEngineSpec::getCharacterCount);
+      prototype.registerHybridGetter("modified", &HybridEditorEngineSpec::getModified);
+      prototype.registerHybridGetter("lineEnding", &HybridEditorEngineSpec::getLineEnding);
+      prototype.registerHybridSetter("lineEnding", &HybridEditorEngineSpec::setLineEnding);
+      prototype.registerHybridGetter("tabSize", &HybridEditorEngineSpec::getTabSize);
+      prototype.registerHybridSetter("tabSize", &HybridEditorEngineSpec::setTabSize);
+      prototype.registerHybridGetter("insertSpaces", &HybridEditorEngineSpec::getInsertSpaces);
+      prototype.registerHybridSetter("insertSpaces", &HybridEditorEngineSpec::setInsertSpaces);
+      prototype.registerHybridMethod("loadContent", &HybridEditorEngineSpec::loadContent);
+      prototype.registerHybridMethod("getContent", &HybridEditorEngineSpec::getContent);
+      prototype.registerHybridMethod("getDocumentInfo", &HybridEditorEngineSpec::getDocumentInfo);
+      prototype.registerHybridMethod("markSaved", &HybridEditorEngineSpec::markSaved);
       prototype.registerHybridMethod("insertText", &HybridEditorEngineSpec::insertText);
-      prototype.registerHybridMethod("getText", &HybridEditorEngineSpec::getText);
+      prototype.registerHybridMethod("deleteText", &HybridEditorEngineSpec::deleteText);
+      prototype.registerHybridMethod("replaceText", &HybridEditorEngineSpec::replaceText);
+      prototype.registerHybridMethod("applyEdits", &HybridEditorEngineSpec::applyEdits);
+      prototype.registerHybridMethod("getLine", &HybridEditorEngineSpec::getLine);
+      prototype.registerHybridMethod("getLineLength", &HybridEditorEngineSpec::getLineLength);
+      prototype.registerHybridMethod("getLineInfo", &HybridEditorEngineSpec::getLineInfo);
+      prototype.registerHybridMethod("getLines", &HybridEditorEngineSpec::getLines);
+      prototype.registerHybridMethod("insertLine", &HybridEditorEngineSpec::insertLine);
+      prototype.registerHybridMethod("deleteLine", &HybridEditorEngineSpec::deleteLine);
+      prototype.registerHybridMethod("getTextInRange", &HybridEditorEngineSpec::getTextInRange);
+      prototype.registerHybridMethod("getOffsetAt", &HybridEditorEngineSpec::getOffsetAt);
+      prototype.registerHybridMethod("getPositionAt", &HybridEditorEngineSpec::getPositionAt);
+      prototype.registerHybridMethod("getWordRangeAtPosition", &HybridEditorEngineSpec::getWordRangeAtPosition);
+      prototype.registerHybridMethod("findText", &HybridEditorEngineSpec::findText);
+      prototype.registerHybridMethod("findAndReplace", &HybridEditorEngineSpec::findAndReplace);
+      prototype.registerHybridMethod("undo", &HybridEditorEngineSpec::undo);
+      prototype.registerHybridMethod("redo", &HybridEditorEngineSpec::redo);
+      prototype.registerHybridMethod("getUndoRedoState", &HybridEditorEngineSpec::getUndoRedoState);
+      prototype.registerHybridMethod("beginUndoGroup", &HybridEditorEngineSpec::beginUndoGroup);
+      prototype.registerHybridMethod("endUndoGroup", &HybridEditorEngineSpec::endUndoGroup);
+      prototype.registerHybridMethod("indentLine", &HybridEditorEngineSpec::indentLine);
+      prototype.registerHybridMethod("outdentLine", &HybridEditorEngineSpec::outdentLine);
+      prototype.registerHybridMethod("indentLines", &HybridEditorEngineSpec::indentLines);
+      prototype.registerHybridMethod("outdentLines", &HybridEditorEngineSpec::outdentLines);
+      prototype.registerHybridMethod("findMatchingBracket", &HybridEditorEngineSpec::findMatchingBracket);
+      prototype.registerHybridMethod("clampPosition", &HybridEditorEngineSpec::clampPosition);
+      prototype.registerHybridMethod("isPositionValid", &HybridEditorEngineSpec::isPositionValid);
+      prototype.registerHybridMethod("getContentHash", &HybridEditorEngineSpec::getContentHash);
     });
   }
 

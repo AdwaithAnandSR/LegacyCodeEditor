@@ -12,7 +12,14 @@
     ],
     "androidCxxLibName": "NitroEditorEngine"
   },
-  "autolinking": {},
+  "autolinking": {
+    "EditorEngine": {
+      "all": {
+        "language": "c++",
+        "implementationClassName": "HybridEditorEngine"
+      }
+    }
+  },
   "ignorePaths": [
     "**/node_modules"
   ]
