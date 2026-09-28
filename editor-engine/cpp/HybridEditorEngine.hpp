@@ -90,7 +90,7 @@ private:
     std::pair<size_t, size_t> findPieceAtOffset(size_t offset) const {
         size_t pos = 0;
         for (size_t i = 0; i < pieces_.size(); ++i) {
-            if (offset <= pos + pieces_[i].length) {
+            if (offset < pos + pieces_[i].length) {
                 return {i, offset - pos};
             }
             pos += pieces_[i].length;
@@ -167,9 +167,6 @@ public:
         } else if (innerOffset == 0) {
             // Insert before piece
             pieces_.insert(pieces_.begin() + static_cast<ptrdiff_t>(pieceIdx), newPiece);
-        } else if (innerOffset == pieces_[pieceIdx].length) {
-            // Insert after piece
-            pieces_.insert(pieces_.begin() + static_cast<ptrdiff_t>(pieceIdx) + 1, newPiece);
         } else {
             // Split the piece
             Piece& orig = pieces_[pieceIdx];
@@ -196,8 +193,15 @@ public:
             const Piece& p = pieces_[i];
             size_t pieceEnd = pos + p.length;
 
-            if (remaining == 0 || offset >= pieceEnd) {
-                // This piece is entirely before or after the deletion range
+            if (remaining == 0) {
+                // Deletion complete — keep all remaining pieces
+                newPieces.push_back(p);
+                pos = pieceEnd;
+                continue;
+            }
+
+            if (offset >= pieceEnd) {
+                // This piece is entirely before the deletion range
                 newPieces.push_back(p);
                 pos = pieceEnd;
                 continue;
@@ -313,18 +317,18 @@ class UndoManager {
 private:
     std::vector<UndoAction> undoStack_;
     std::vector<UndoAction> redoStack_;
-    bool grouping_ = false;
+    size_t groupDepth_ = 0;
 
 public:
     void clear() {
         undoStack_.clear();
         redoStack_.clear();
-        grouping_ = false;
+        groupDepth_ = 0;
     }
 
     void pushState(const std::string& content) {
-        // If we're grouping and already have state, skip
-        if (grouping_ && !undoStack_.empty()) return;
+        // If we're inside a group and already have state, skip
+        if (groupDepth_ > 0 && !undoStack_.empty()) return;
         undoStack_.push_back({content});
         redoStack_.clear();
     }
@@ -356,9 +360,9 @@ public:
         return state.contentBefore;
     }
 
-    void beginGroup() { grouping_ = true; }
-    void endGroup() { grouping_ = false; }
-    bool isGrouping() const { return grouping_; }
+    void beginGroup() { groupDepth_++; }
+    void endGroup() { if (groupDepth_ > 0) groupDepth_--; }
+    bool isGrouping() const { return groupDepth_ > 0; }
 };
 
 // ─── Hybrid Object Implementation ────────────────────────────────────────────
@@ -585,7 +589,6 @@ public:
 
     void applyEdits(const std::vector<EditOperation>& edits) override {
         recordUndo();
-        undoManager_.beginGroup();
 
         // Sort edits in reverse order so earlier edits don't shift later offsets
         std::vector<EditOperation> sorted = edits;
@@ -604,8 +607,6 @@ public:
                 pieceTable_.insert(startOff, edit.text);
             }
         }
-
-        undoManager_.endGroup();
     }
 
     // ─── Line Operations ────────────────────────────────────────────────
@@ -666,13 +667,10 @@ public:
             end = pieceTable_.length();
             // If deleting last line and there's a preceding newline, remove that too
             if (start > 0 && idx > 0) {
-                // Include the preceding line ending
-                size_t prevEnd = start;
-                start = pieceTable_.getLineStartOffset(idx - 1);
+                // Move start back to include the line ending after the previous line's text
+                size_t prevLineStart = pieceTable_.getLineStartOffset(idx - 1);
                 std::string prevLine = pieceTable_.getLine(idx - 1);
-                start = prevEnd - (prevEnd - (start + prevLine.size()));
-                // Actually, just delete from line start to document end
-                start = pieceTable_.getLineStartOffset(idx);
+                start = prevLineStart + prevLine.size();
             }
         }
 
@@ -781,9 +779,9 @@ public:
             size_t pos = 0;
             while ((pos = searchContent.find(searchQuery, pos)) != std::string::npos) {
                 if (wholeWord) {
-                    bool leftOk = (pos == 0) || !isWordChar(content[pos - 1]);
-                    bool rightOk = (pos + query.size() >= content.size()) ||
-                                   !isWordChar(content[pos + query.size()]);
+                    bool leftOk = (pos == 0) || !isWordChar(searchContent[pos - 1]);
+                    bool rightOk = (pos + searchQuery.size() >= searchContent.size()) ||
+                                   !isWordChar(searchContent[pos + searchQuery.size()]);
                     if (!leftOk || !rightOk) {
                         pos++;
                         continue;
@@ -791,14 +789,14 @@ public:
                 }
 
                 CursorPosition startPos = toPosition(pos);
-                CursorPosition endPos = toPosition(pos + query.size());
+                CursorPosition endPos = toPosition(pos + searchQuery.size());
 
                 results.push_back(SearchResult{
                     TextRange{startPos.line, startPos.column, endPos.line, endPos.column},
-                    content.substr(pos, query.size())
+                    content.substr(pos, searchQuery.size())
                 });
 
-                pos += query.size();
+                pos += searchQuery.size();
             }
         }
 
@@ -816,23 +814,32 @@ public:
         if (results.empty()) return 0;
 
         recordUndo();
-        undoManager_.beginGroup();
 
-        // Apply replacements in reverse order to preserve offsets
+        // Pre-compute all byte offsets before mutating the document
+        struct ByteRange {
+            size_t start;
+            size_t end;
+        };
+        std::vector<ByteRange> offsets;
+        offsets.reserve(results.size());
+        for (const auto& r : results) {
+            size_t s = toOffset(r.range.startLine, r.range.startColumn);
+            size_t e = toOffset(r.range.endLine, r.range.endColumn);
+            offsets.push_back({s, e});
+        }
+
+        // Apply replacements in reverse order to preserve earlier offsets
         double count = 0;
-        for (auto it = results.rbegin(); it != results.rend(); ++it) {
-            size_t startOff = toOffset(it->range.startLine, it->range.startColumn);
-            size_t endOff = toOffset(it->range.endLine, it->range.endColumn);
-            if (endOff > startOff) {
-                pieceTable_.remove(startOff, endOff - startOff);
+        for (auto it = offsets.rbegin(); it != offsets.rend(); ++it) {
+            if (it->end > it->start) {
+                pieceTable_.remove(it->start, it->end - it->start);
             }
             if (!replacement.empty()) {
-                pieceTable_.insert(startOff, replacement);
+                pieceTable_.insert(it->start, replacement);
             }
             count++;
         }
 
-        undoManager_.endGroup();
         return count;
     }
 
@@ -853,7 +860,8 @@ public:
         auto content = undoManager_.redo(pieceTable_.getText());
         if (content.has_value()) {
             pieceTable_.loadContent(content.value());
-            modified_ = true;
+            // Check if we're back to saved state
+            modified_ = (computeHash(content.value()) != savedContentHash_);
         }
     }
 
@@ -914,7 +922,6 @@ public:
 
     void indentLines(double startLine, double endLine) override {
         recordUndo();
-        undoManager_.beginGroup();
         size_t s = static_cast<size_t>(std::max(1.0, startLine));
         size_t e = static_cast<size_t>(std::max(1.0, endLine));
         e = std::min(e, pieceTable_.lineCount());
@@ -931,12 +938,10 @@ public:
             size_t offset = pieceTable_.getLineStartOffset(i - 1);
             pieceTable_.insert(offset, indent);
         }
-        undoManager_.endGroup();
     }
 
     void outdentLines(double startLine, double endLine) override {
         recordUndo();
-        undoManager_.beginGroup();
         size_t s = static_cast<size_t>(std::max(1.0, startLine));
         size_t e = static_cast<size_t>(std::max(1.0, endLine));
         e = std::min(e, pieceTable_.lineCount());
@@ -962,7 +967,6 @@ public:
                 pieceTable_.remove(offset, toRemove);
             }
         }
-        undoManager_.endGroup();
     }
 
     // ─── Bracket Matching ───────────────────────────────────────────────
