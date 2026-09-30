@@ -28,47 +28,36 @@ export function useEditorScroll(
   const panStartY = useRef(0);
   const panStartX = useRef(0);
 
-  const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .onStart(() => {
-          panStartY.current = stateManager.scrollOffset.y;
-          panStartX.current = stateManager.scrollOffset.x;
-        })
-        .onUpdate((e) => {
-          const newY = panStartY.current - e.translationY;
-          const newX = panStartX.current - e.translationX;
-          const maxY = Math.max(
-            0,
-            stateManager.totalContentHeight - stateManager.viewport.height,
-          );
-          stateManager.scrollOffset = {
-            x: Math.max(0, newX),
-            y: Math.max(0, Math.min(maxY, newY)),
-          };
-          stateManager.invalidate();
-        })
-        .minDistance(5)
-        .runOnJS(true),
-    [stateManager],
-  );
+  const panGesture = Gesture.Pan()
+    .onStart(() => {
+      panStartY.current = stateManager.scrollOffset.y;
+      panStartX.current = stateManager.scrollOffset.x;
+    })
+    .onUpdate((e) => {
+      const newY = panStartY.current - e.translationY;
+      const newX = panStartX.current - e.translationX;
+      const maxY = Math.max(
+        0,
+        stateManager.totalContentHeight - stateManager.viewport.height,
+      );
+      stateManager.scrollOffset = {
+        x: Math.max(0, newX),
+        y: Math.max(0, Math.min(maxY, newY)),
+      };
+      stateManager.invalidate();
+    })
+    .minDistance(5)
+    .runOnJS(true);
 
-  const tapGesture = useMemo(
-    () =>
-      Gesture.Tap()
-        .onEnd((e) => {
-          stateManager.handleTap(e.x, e.y, charWidth);
-          onTap?.();
-        })
-        .maxDuration(250)
-        .runOnJS(true),
-    [stateManager, charWidth, onTap],
-  );
+  const tapGesture = Gesture.Tap()
+    .onEnd((e) => {
+      stateManager.handleTap(e.x, e.y, charWidth);
+      onTap?.();
+    })
+    .maxDuration(250)
+    .runOnJS(true);
 
-  const gesture = useMemo(
-    () => Gesture.Race(panGesture, tapGesture),
-    [panGesture, tapGesture],
-  );
+  const gesture = Gesture.Exclusive(panGesture, tapGesture);
 
   return { gesture };
 }
