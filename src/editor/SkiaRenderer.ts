@@ -1,0 +1,260 @@
+/**
+ * SkiaRenderer – pure Skia drawing logic, completely decoupled from React.
+ *
+ * This module provides a function that records all editor drawing commands
+ * into an SkPicture. The Canvas renders this Picture on the GPU.
+ *
+ * Key design decisions:
+ * 1. We use `createPicture()` to imperatively record draw commands, then
+ *    render the result via the declarative `<Picture>` component. This
+ *    gives us the best of both worlds: imperative drawing + Canvas GPU path.
+ * 2. Only visible lines are drawn — the VisibleRange from the state manager
+ *    controls this. This is the hook point for virtualisation.
+ * 3. Skia Paragraphs are built per-line using ParagraphBuilder.
+ *    In the future, syntax highlighting will push multiple styled runs.
+ * 4. All Skia Paints are created once (module-level) and reused.
+ */
+
+import {
+  Skia,
+  type SkCanvas,
+  type SkPicture,
+  PaintStyle,
+  type SkPaint,
+  type SkTypefaceFontProvider,
+  type SkParagraph,
+  createPicture,
+} from "@shopify/react-native-skia";
+import type { EditorStateManager } from "./EditorStateManager";
+import { EDITOR_THEME } from "./theme";
+
+// ── Re-export TextAlign since it's in a sub-module ───────────────────────────
+import { TextAlign } from "@shopify/react-native-skia";
+
+// ── Cached Paints (allocated once at module load) ────────────────────────────
+
+function makePaint(color: string, style: PaintStyle = PaintStyle.Fill): SkPaint {
+  const p = Skia.Paint();
+  p.setColor(Skia.Color(color));
+  p.setStyle(style);
+  return p;
+}
+
+/** Pre-allocated paints — created once, reused every frame. */
+const PAINTS = {
+  background: makePaint(EDITOR_THEME.background),
+  gutterBg: makePaint(EDITOR_THEME.gutterBackground),
+  gutterBorder: makePaint(EDITOR_THEME.gutterBorder),
+  currentLineHighlight: makePaint(EDITOR_THEME.currentLineHighlight),
+  cursor: makePaint(EDITOR_THEME.cursorColor),
+};
+
+// ── Renderer Resources ──────────────────────────────────────────────────────
+
+/**
+ * Resources that depend on the font provider.
+ * Created once when fonts load and reused every frame.
+ */
+export interface SkiaRendererResources {
+  fontProvider: SkTypefaceFontProvider;
+  /** Monospace character width (all chars are the same width). */
+  charWidth: number;
+}
+
+/**
+ * Measure the width of a single monospace character using a Paragraph.
+ */
+function measureCharWidth(fontProvider: SkTypefaceFontProvider): number {
+  const para = Skia.ParagraphBuilder.Make(
+    {
+      textStyle: {
+        fontSize: EDITOR_THEME.fontSize,
+        fontFamilies: [EDITOR_THEME.fontFamily],
+        color: Skia.Color(EDITOR_THEME.textColor),
+      },
+    },
+    fontProvider,
+  )
+    .addText("M")
+    .build();
+  para.layout(1e6);
+  return para.getMinIntrinsicWidth();
+}
+
+export function createRendererResources(
+  fontProvider: SkTypefaceFontProvider,
+): SkiaRendererResources {
+  return {
+    fontProvider,
+    charWidth: measureCharWidth(fontProvider),
+  };
+}
+
+// ── Line Paragraph Builders ─────────────────────────────────────────────────
+
+/**
+ * Build a Skia Paragraph for a single line of code text.
+ */
+function buildLineParagraph(
+  text: string,
+  fontProvider: SkTypefaceFontProvider,
+): SkParagraph {
+  const para = Skia.ParagraphBuilder.Make(
+    {
+      textStyle: {
+        fontSize: EDITOR_THEME.fontSize,
+        fontFamilies: [EDITOR_THEME.fontFamily],
+        color: Skia.Color(EDITOR_THEME.textColor),
+      },
+    },
+    fontProvider,
+  )
+    .addText(text || " ") // empty lines still need a space for height
+    .build();
+  para.layout(1e6); // no wrapping — infinite width
+  return para;
+}
+
+/**
+ * Build a Skia Paragraph for a line number in the gutter.
+ */
+function buildLineNumberParagraph(
+  lineNum: number,
+  isActive: boolean,
+  fontProvider: SkTypefaceFontProvider,
+): SkParagraph {
+  const para = Skia.ParagraphBuilder.Make(
+    {
+      textAlign: TextAlign.Right,
+      textStyle: {
+        fontSize: EDITOR_THEME.fontSize,
+        fontFamilies: [EDITOR_THEME.fontFamily],
+        color: Skia.Color(
+          isActive
+            ? EDITOR_THEME.lineNumberActiveColor
+            : EDITOR_THEME.lineNumberColor,
+        ),
+      },
+    },
+    fontProvider,
+  )
+    .addText(String(lineNum))
+    .build();
+  para.layout(EDITOR_THEME.gutterWidth - EDITOR_THEME.gutterPaddingRight);
+  return para;
+}
+
+// ── Main Draw Function ──────────────────────────────────────────────────────
+
+/**
+ * Draw the entire editor onto the given Skia canvas.
+ *
+ * Called inside `createPicture()` — records draw commands into a picture
+ * that the GPU replays. This function must be fast and allocation-light.
+ */
+function drawEditorToCanvas(
+  canvas: SkCanvas,
+  state: EditorStateManager,
+  resources: SkiaRendererResources,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  const { fontProvider, charWidth } = resources;
+  const {
+    lineHeight,
+    gutterWidth,
+    contentPaddingLeft,
+    contentPaddingTop,
+    cursorWidth,
+  } = EDITOR_THEME;
+
+  // ── 1. Clear background ────────────────────────────────────────────────
+  canvas.drawPaint(PAINTS.background);
+
+  // ── 2. Compute visible range ───────────────────────────────────────────
+  const { firstLine, lastLine } = state.getVisibleRange();
+  const contentAreaWidth = canvasWidth - gutterWidth - contentPaddingLeft;
+
+  // ── 3. Draw current line highlight ─────────────────────────────────────
+  const cursorLineY = state.getLineY(state.cursorLine);
+  if (cursorLineY >= -lineHeight && cursorLineY < canvasHeight) {
+    canvas.drawRect(
+      Skia.XYWHRect(
+        gutterWidth,
+        cursorLineY,
+        contentAreaWidth + contentPaddingLeft,
+        lineHeight,
+      ),
+      PAINTS.currentLineHighlight,
+    );
+  }
+
+  // ── 4. Draw gutter background ──────────────────────────────────────────
+  canvas.drawRect(
+    Skia.XYWHRect(0, 0, gutterWidth, canvasHeight),
+    PAINTS.gutterBg,
+  );
+
+  // ── 5. Draw gutter border ──────────────────────────────────────────────
+  canvas.drawLine(gutterWidth, 0, gutterWidth, canvasHeight, PAINTS.gutterBorder);
+
+  // ── 6. Draw visible lines ──────────────────────────────────────────────
+  for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
+    const y = state.getLineY(lineNum);
+
+    // Skip lines fully outside viewport
+    if (y + lineHeight < 0 || y > canvasHeight) continue;
+
+    // Vertical center offset for text within line
+    const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
+
+    // -- Line number
+    const lineNumPara = buildLineNumberParagraph(
+      lineNum,
+      lineNum === state.cursorLine,
+      fontProvider,
+    );
+    lineNumPara.paint(canvas, 0, textY);
+
+    // -- Line text
+    const lineText = state.engine.getLine(lineNum);
+    const para = buildLineParagraph(lineText, fontProvider);
+    const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
+    para.paint(canvas, textX, textY);
+  }
+
+  // ── 7. Draw cursor ────────────────────────────────────────────────────
+  if (state.cursorVisible) {
+    const cx = state.getCursorX(charWidth);
+    const cy = state.getCursorY();
+
+    if (cy >= -lineHeight && cy < canvasHeight && cx >= gutterWidth) {
+      canvas.drawRect(
+        Skia.XYWHRect(cx, cy, cursorWidth, lineHeight),
+        PAINTS.cursor,
+      );
+    }
+  }
+}
+
+// ── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * Create an SkPicture that contains the full editor rendering.
+ *
+ * This is the main entry point called by EditorCanvas on every invalidation.
+ * The returned SkPicture is rendered via the `<Picture>` component.
+ */
+export function createEditorPicture(
+  state: EditorStateManager,
+  resources: SkiaRendererResources,
+  canvasWidth: number,
+  canvasHeight: number,
+): SkPicture {
+  return createPicture(
+    (canvas) => {
+      drawEditorToCanvas(canvas, state, resources, canvasWidth, canvasHeight);
+    },
+    { width: canvasWidth, height: canvasHeight },
+  );
+}

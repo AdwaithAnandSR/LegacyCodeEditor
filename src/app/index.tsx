@@ -1,100 +1,66 @@
-import React, { useState, useEffect, useRef } from "react";
-import { StyleSheet, View, Text as RNText, TextInput } from "react-native";
-import { createEditorEngine, CursorPosition } from "editor-engine";
-import { Canvas, Paragraph, useFonts, Skia } from "@shopify/react-native-skia";
+import { StyleSheet, View, Text } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { StatusBar } from "expo-status-bar";
+import { EditorCanvas } from "@/editor";
 
-export default function App() {
-    // 1. Initialize Engine (No useMemo needed. useRef keeps the class instance alive)
-    const engineRef = useRef<any>(null);
-    if (!engineRef.current) {
-        engineRef.current = createEditorEngine();
-        engineRef.current.loadContent("");
-    }
-    
+const SAMPLE_CODE = `// Welcome to LegacyCodeEditor
+// Start typing to edit!
 
-    
-    const fontMgr = useFonts({
-        SpaceMono: [require("../../assets/fonts/SpaceMono-Regular.ttf")]
-    });
+function fibonacci(n: number): number {
+  if (n <= 1) return n;
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
 
-    
-    const handleTextChange = (text: string) => {
-        
-    };
+const result = fibonacci(10);
+console.log("Fibonacci(10) =", result);
 
-    const handleKeyPress = ({ nativeEvent }: any) => {
-        
-    };
+// This editor is rendered entirely with Skia
+// for maximum frame-rate on mobile devices.
+`;
 
-    if (!fontMgr) {
-        return (
-            <View style={styles.container}>
-                <RNText style={{ color: "white" }}>Loading...</RNText>
-            </View>
-        );
-    }
+export default function EditorScreen() {
+  return (
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaView style={styles.safe} edges={["top"]}>
+        <StatusBar style="light" />
 
-    return (
-        <View style={styles.container}>
-            <RNText style={styles.title}>Nitro x Skia Engine</RNText>
-
-            
-
-            <View style={styles.editorPreview}>
-                <Canvas style={StyleSheet.absoluteFill}>
-                    
-                        <Paragraph />
-                    
-                </Canvas>
-
-                <TextInput
-                    style={styles.ghostInput}
-                    value=""
-                    onChangeText={handleTextChange}
-                    onKeyPress={handleKeyPress}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    spellCheck={false}
-                    autoComplete="off"
-                    caretHidden={true}
-                    multiline={false}
-                />
-            </View>
+        {/* Header bar */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>LegacyCodeEditor</Text>
         </View>
-    );
+
+        {/* Editor takes all remaining space */}
+        <View style={styles.editorContainer}>
+          <EditorCanvas initialContent={SAMPLE_CODE} />
+        </View>
+      </SafeAreaView>
+    </GestureHandlerRootView>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: "#1E1E1E",
-        padding: 30,
-        paddingTop: 60
-    },
-    title: {
-        color: "#FFFFFF",
-        fontSize: 22,
-        marginBottom: 15,
-        fontWeight: "bold"
-    },
-    statsContainer: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        marginBottom: 10,
-        paddingHorizontal: 5
-    },
-    statText: { color: "#858585", fontSize: 12, fontFamily: "monospace" },
-    editorPreview: {
-        flex: 1,
-        backgroundColor: "#252526",
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: "#333",
-        overflow: "hidden"
-    },
-    ghostInput: {
-        ...StyleSheet.absoluteFillObject,
-        color: "transparent",
-        backgroundColor: "transparent"
-    }
+  root: {
+    flex: 1,
+    backgroundColor: "#1E1E1E",
+  },
+  safe: {
+    flex: 1,
+    backgroundColor: "#1E1E1E",
+  },
+  header: {
+    height: 44,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#333",
+  },
+  headerTitle: {
+    color: "#CCCCCC",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  editorContainer: {
+    flex: 1,
+  },
 });
