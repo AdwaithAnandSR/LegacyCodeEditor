@@ -264,6 +264,10 @@ export class EditorStateManager {
   private _momentumVelocity = { x: 0, y: 0 };
   private _lastMomentumTime = 0;
 
+  isMomentumScrolling(): boolean {
+    return this._momentumAnimId !== null;
+  }
+
   startMomentumScroll(velocityX: number, velocityY: number) {
     this.stopMomentumScroll();
     

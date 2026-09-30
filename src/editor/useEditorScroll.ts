@@ -28,45 +28,62 @@ export function useEditorScroll(
   const panStartY = useRef(0);
   const panStartX = useRef(0);
   
+  const panStartTranslation = useRef({ x: 0, y: 0 });
+  
   // Track which axis we are locked to for this gesture
   const scrollLock = useRef<'vertical' | 'horizontal' | 'none'>('none');
+  
+  // When locking an axis, we freeze the inactive axis at its current sub-pixel offset
+  // rather than snapping it back to 0, completely preventing the "snap-back flick"
+  const frozenX = useRef<number>(0);
+  const frozenY = useRef<number>(0);
+
+  // Track if we need to consume a tap to catch a moving scrollview
+  const wasScrolling = useRef(false);
 
   // Pull dynamic preference from Zustand
   const { directionalLockEnabled } = useEditorPreferences();
 
   const panGesture = Gesture.Pan()
-    .onStart(() => {
+    .onBegin(() => {
+      wasScrolling.current = stateManager.isMomentumScrolling();
       stateManager.stopMomentumScroll();
+    })
+    .onStart((e) => {
       panStartY.current = stateManager.scrollOffset.y;
       panStartX.current = stateManager.scrollOffset.x;
+      panStartTranslation.current = { x: e.translationX, y: e.translationY };
       scrollLock.current = 'none';
+      frozenX.current = 0;
+      frozenY.current = 0;
     })
     .onUpdate((e) => {
-      if (directionalLockEnabled) {
-        // Fingers are imprecise. The first 5 pixels of a horizontal swipe 
-        // are often slightly diagonal, causing false-positive vertical locks.
-        // We wait until the gesture has moved 20 pixels in any direction 
-        // to establish a clean, undeniable trajectory before permanently locking.
-        if (scrollLock.current === 'none') {
-          if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-            scrollLock.current = Math.abs(e.translationX) > Math.abs(e.translationY)
-              ? 'horizontal'
-              : 'vertical';
-          }
+      const activeTranslationY = e.translationY - panStartTranslation.current.y;
+      const activeTranslationX = e.translationX - panStartTranslation.current.x;
+
+      if (directionalLockEnabled && scrollLock.current === 'none') {
+        const dx = Math.abs(activeTranslationX);
+        const dy = Math.abs(activeTranslationY);
+        
+        // Wait for just 3 pixels of active movement to reliably determine intention.
+        // (Because RNGH sometimes zeroes out e.translation in onStart, we must wait for onUpdate).
+        if (dx > 3 || dy > 3) {
+          scrollLock.current = dx > dy ? 'horizontal' : 'vertical';
+          
+          // The exact millisecond we lock, freeze the inactive axis at whatever tiny 
+          // 3-pixel offset it had drifted to. This prevents it from teleporting back to 0!
+          frozenX.current = activeTranslationX;
+          frozenY.current = activeTranslationY;
         }
-      } else {
-        // If disabled, never lock axes
-        scrollLock.current = 'none';
       }
 
-      // While 'none', we freely apply both (natural micro-movements)
       const newY = scrollLock.current === 'horizontal' 
-        ? panStartY.current 
-        : panStartY.current - e.translationY;
+        ? panStartY.current - frozenY.current
+        : panStartY.current - activeTranslationY;
         
       const newX = scrollLock.current === 'vertical' 
-        ? panStartX.current 
-        : panStartX.current - e.translationX;
+        ? panStartX.current - frozenX.current
+        : panStartX.current - activeTranslationX;
 
       stateManager.scrollOffset = {
         x: Math.max(0, newX),
@@ -75,7 +92,6 @@ export function useEditorScroll(
       stateManager.invalidate();
     })
     .onEnd((e) => {
-      // Only pass momentum to the unlocked axis
       const velX = scrollLock.current === 'vertical' ? 0 : e.velocityX;
       const velY = scrollLock.current === 'horizontal' ? 0 : e.velocityY;
       stateManager.startMomentumScroll(velX, velY);
@@ -84,9 +100,16 @@ export function useEditorScroll(
     .runOnJS(true);
 
   const tapGesture = Gesture.Tap()
+    .onBegin(() => {
+      wasScrolling.current = stateManager.isMomentumScrolling();
+      stateManager.stopMomentumScroll();
+    })
     .onEnd((e) => {
-      stateManager.handleTap(e.x, e.y);
-      onTap?.();
+      // If the scrollview was moving, this tap just catches it. Don't move the cursor.
+      if (!wasScrolling.current) {
+        stateManager.handleTap(e.x, e.y);
+        onTap?.();
+      }
     })
     .maxDuration(250)
     .runOnJS(true);
