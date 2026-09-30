@@ -61,6 +61,7 @@ export class EditorStateManager {
 
   // ── Viewport (set by the canvas on layout) ───────────────────────────────
   viewport: ViewportInfo = { height: 0, width: 0 };
+  isKeyboardVisible: boolean = false;
 
   // ── Invalidation callback (set by the Skia layer) ────────────────────────
   private _invalidate: InvalidateCallback | null = null;
@@ -402,8 +403,8 @@ export class EditorStateManager {
     
     let targetY = this.scrollOffset.y;
 
-    if (forceCenter) {
-      targetY = cursorY - this.viewport.height / 2 + lineHeight / 2;
+    if (forceCenter || this.isKeyboardVisible) {
+      targetY = cursorY - this.viewport.height * EDITOR_THEME.typewriterOffset + lineHeight / 2;
     } else {
       const viewTop = this.scrollOffset.y;
       const viewBottom = viewTop + this.viewport.height;

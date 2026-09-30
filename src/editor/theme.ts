@@ -31,6 +31,11 @@ export const EDITOR_THEME = {
   // ── Cursor ───────────────────────────────────────────────────────────────
   cursorWidth: 2,
   cursorBlinkIntervalMs: 530,
+
+  // ── Behaviors ────────────────────────────────────────────────────────────
+  // Controls where the cursor locks to the screen when the keyboard is active
+  // 0.5 = Dead Center (50%), 0.25 = Upper Quarter, 0.75 = Lower Quarter
+  typewriterOffset: 0.5,
 } as const;
 
 export type EditorTheme = typeof EDITOR_THEME;

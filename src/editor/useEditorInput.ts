@@ -19,11 +19,13 @@ export function useEditorInput(stateManager: EditorStateManager) {
   useEffect(() => {
     const sub1 = Keyboard.addListener("keyboardDidShow", () => {
       isKeyboardVisible.current = true;
+      stateManager.isKeyboardVisible = true;
       stateManager.scrollToCursor(true);
       stateManager.invalidate();
     });
     const sub2 = Keyboard.addListener("keyboardDidHide", () => {
       isKeyboardVisible.current = false;
+      stateManager.isKeyboardVisible = false;
     });
     return () => {
       sub1.remove();
