@@ -35,7 +35,7 @@ import {
   createRendererResources,
   type SkiaRendererResources,
 } from "./SkiaRenderer";
-import { useEditorInput } from "./useEditorInput";
+import { useEditorInput, SENTINEL } from "./useEditorInput";
 import { useEditorScroll } from "./useEditorScroll";
 import { EDITOR_THEME } from "./theme";
 
@@ -45,9 +45,6 @@ export interface EditorCanvasProps {
   /** Initial content to load into the editor. */
   initialContent?: string;
 }
-
-// Sentinel for hidden TextInput
-const SENTINEL = "\u200B";
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -140,7 +137,8 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
         <TextInput
           ref={inputRef}
           style={styles.ghostInput}
-          value={SENTINEL}
+          pointerEvents="none"
+          defaultValue={SENTINEL}
           onChangeText={handleTextChange}
           onKeyPress={handleKeyPress}
           autoCapitalize="none"
@@ -148,7 +146,8 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
           spellCheck={false}
           autoComplete="off"
           caretHidden={true}
-          multiline={false}
+          multiline={true}
+          blurOnSubmit={false}
           autoFocus
         />
       </View>
