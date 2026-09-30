@@ -4,13 +4,13 @@ import type { TextInput, NativeSyntheticEvent, TextInputKeyPressEventData } from
 import type { EditorStateManager } from "./EditorStateManager";
 
 // We use 100-character invisible buffers. 
-// If we only used 1 character, holding backspace would instantly hit an empty string (""),
-// causing Android software keyboards to permanently abort the backspace auto-repeat loop.
-// Alternating distinct invisible characters prevents the keyboard from deleting them in massive chunks.
-const REPEATER_A = "\u200B\u200C\u200D\u200E";
-const REPEATER_B = "\u200C\u200D\u200E\u200B";
-const SENTINEL_A = REPEATER_A.repeat(25); // 100 chars
-const SENTINEL_B = REPEATER_B.repeat(25); // 100 chars
+// We strictly avoid \u200D (ZWJ) and \u200E (LRM) because Android keyboards group 
+// them into grapheme clusters, causing a single backspace to chunk-delete 4 chars at once!
+// \u200B (Zero Width Space) and \u200C (Zero Width Non-Joiner) are completely safe.
+const REPEATER_A = "\u200B\u200C";
+const REPEATER_B = "\u200C\u200B";
+const SENTINEL_A = REPEATER_A.repeat(50); // 100 chars
+const SENTINEL_B = REPEATER_B.repeat(50); // 100 chars
 
 export const SENTINEL = SENTINEL_A;
 
