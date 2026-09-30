@@ -3,16 +3,24 @@ import { Keyboard } from "react-native";
 import type { TextInput, NativeSyntheticEvent, TextInputKeyPressEventData } from "react-native";
 import type { EditorStateManager } from "./EditorStateManager";
 
-export const SENTINEL = "\u200B";
+// We use 100-character invisible buffers. 
+// If we only used 1 character, holding backspace would instantly hit an empty string (""),
+// causing Android software keyboards to permanently abort the backspace auto-repeat loop.
+// Alternating distinct invisible characters prevents the keyboard from deleting them in massive chunks.
+const REPEATER_A = "\u200B\u200C\u200D\u200E";
+const REPEATER_B = "\u200C\u200D\u200E\u200B";
+const SENTINEL_A = REPEATER_A.repeat(25); // 100 chars
+const SENTINEL_B = REPEATER_B.repeat(25); // 100 chars
+
+export const SENTINEL = SENTINEL_A;
 
 export function useEditorInput(stateManager: EditorStateManager) {
   const inputRef = useRef<TextInput | null>(null);
   
-  // We alternate between two invisible characters to detect if the OS
-  // ignored our setNativeProps clear command.
-  const sentinelRef = useRef<string>(SENTINEL);
-  const lastTextRef = useRef<string>(SENTINEL);
-  const nativeTextRef = useRef<string>(SENTINEL); // Tracks the true OS buffer
+  // We alternate between two distinct long invisible strings
+  const sentinelRef = useRef<string>(SENTINEL_A);
+  const lastTextRef = useRef<string>(SENTINEL_A);
+  const nativeTextRef = useRef<string>(SENTINEL_A); // Tracks the true OS buffer
   
   const isKeyboardVisible = useRef(false);
 
@@ -34,8 +42,8 @@ export function useEditorInput(stateManager: EditorStateManager) {
   }, [stateManager]);
 
   const clearInput = useCallback(() => {
-    // Flip the sentinel between \u200B (Zero Width Space) and \u200C (Zero Width Non-Joiner)
-    sentinelRef.current = sentinelRef.current === "\u200B" ? "\u200C" : "\u200B";
+    // Flip the sentinel between the two long invisible strings
+    sentinelRef.current = sentinelRef.current === SENTINEL_A ? SENTINEL_B : SENTINEL_A;
     lastTextRef.current = sentinelRef.current;
     
     // Attempt to clear the native OS buffer
