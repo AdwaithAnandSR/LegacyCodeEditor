@@ -26,16 +26,39 @@ export function useEditorScroll(
   // Track the scroll offset at the start of each pan
   const panStartY = useRef(0);
   const panStartX = useRef(0);
+  
+  // Track which axis we are locked to for this gesture
+  const scrollLock = useRef<'vertical' | 'horizontal' | 'none'>('none');
 
   const panGesture = Gesture.Pan()
     .onStart(() => {
       stateManager.stopMomentumScroll();
       panStartY.current = stateManager.scrollOffset.y;
       panStartX.current = stateManager.scrollOffset.x;
+      scrollLock.current = 'none';
     })
     .onUpdate((e) => {
-      const newY = panStartY.current - e.translationY;
-      const newX = panStartX.current - e.translationX;
+      // Fingers are imprecise. The first 5 pixels of a horizontal swipe 
+      // are often slightly diagonal, causing false-positive vertical locks.
+      // We wait until the gesture has moved 20 pixels in any direction 
+      // to establish a clean, undeniable trajectory before permanently locking.
+      if (scrollLock.current === 'none') {
+        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
+          scrollLock.current = Math.abs(e.translationX) > Math.abs(e.translationY)
+            ? 'horizontal'
+            : 'vertical';
+        }
+      }
+
+      // While 'none', we freely apply both (natural micro-movements)
+      const newY = scrollLock.current === 'horizontal' 
+        ? panStartY.current 
+        : panStartY.current - e.translationY;
+        
+      const newX = scrollLock.current === 'vertical' 
+        ? panStartX.current 
+        : panStartX.current - e.translationX;
+
       stateManager.scrollOffset = {
         x: Math.max(0, newX),
         y: Math.max(0, Math.min(stateManager.maxScrollY, newY)),
@@ -43,7 +66,10 @@ export function useEditorScroll(
       stateManager.invalidate();
     })
     .onEnd((e) => {
-      stateManager.startMomentumScroll(e.velocityX, e.velocityY);
+      // Only pass momentum to the unlocked axis
+      const velX = scrollLock.current === 'vertical' ? 0 : e.velocityX;
+      const velY = scrollLock.current === 'horizontal' ? 0 : e.velocityY;
+      stateManager.startMomentumScroll(velX, velY);
     })
     .minDistance(5)
     .runOnJS(true);
