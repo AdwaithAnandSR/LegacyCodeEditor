@@ -19,6 +19,8 @@ console.log("Fibonacci(10) =", result);
 // for maximum frame-rate on mobile devices.
 `;
 
+import { KeyboardAvoidingView, Platform } from "react-native";
+
 export default function EditorScreen() {
   return (
     <GestureHandlerRootView style={styles.root}>
@@ -31,9 +33,12 @@ export default function EditorScreen() {
         </View>
 
         {/* Editor takes all remaining space */}
-        <View style={styles.editorContainer}>
+        <KeyboardAvoidingView 
+          style={styles.editorContainer} 
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
           <EditorCanvas initialContent={SAMPLE_CODE} />
-        </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </GestureHandlerRootView>
   );

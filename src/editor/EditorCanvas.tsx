@@ -78,6 +78,9 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
       const { width, height } = e.nativeEvent.layout;
       canvasSizeRef.current = { width, height };
       stateManager.setViewport(width, height);
+      
+      // Ensure cursor remains visible during resize animations
+      stateManager.scrollToCursor(false);
       stateManager.invalidate(); // Force redraw on resize
     },
     [stateManager],

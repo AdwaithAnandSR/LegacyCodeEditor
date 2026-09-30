@@ -19,6 +19,8 @@ export function useEditorInput(stateManager: EditorStateManager) {
   useEffect(() => {
     const sub1 = Keyboard.addListener("keyboardDidShow", () => {
       isKeyboardVisible.current = true;
+      stateManager.scrollToCursor(true);
+      stateManager.invalidate();
     });
     const sub2 = Keyboard.addListener("keyboardDidHide", () => {
       isKeyboardVisible.current = false;
@@ -27,7 +29,7 @@ export function useEditorInput(stateManager: EditorStateManager) {
       sub1.remove();
       sub2.remove();
     };
-  }, []);
+  }, [stateManager]);
 
   const clearInput = useCallback(() => {
     // Flip the sentinel between \u200B (Zero Width Space) and \u200C (Zero Width Non-Joiner)

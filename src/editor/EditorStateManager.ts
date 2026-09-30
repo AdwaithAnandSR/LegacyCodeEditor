@@ -115,7 +115,7 @@ export class EditorStateManager {
     );
     this.setCursor(newPos.line, newPos.column);
     this.resetBlink();
-    this.ensureCursorVisible();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -147,7 +147,7 @@ export class EditorStateManager {
 
     this.setCursor(deleteLine, deleteColStart);
     this.resetBlink();
-    this.ensureCursorVisible();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -207,7 +207,7 @@ export class EditorStateManager {
       this.cursorColumn = this.engine.getLineLength(this.cursorLine);
     }
     this.resetBlink();
-    this.ensureCursorVisible();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -220,7 +220,7 @@ export class EditorStateManager {
       this.cursorColumn = 0;
     }
     this.resetBlink();
-    this.ensureCursorVisible();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -231,7 +231,7 @@ export class EditorStateManager {
       this.cursorColumn = Math.min(this.cursorColumn, lineLen);
     }
     this.resetBlink();
-    this.ensureCursorVisible();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -242,7 +242,7 @@ export class EditorStateManager {
       this.cursorColumn = Math.min(this.cursorColumn, lineLen);
     }
     this.resetBlink();
-    this.ensureCursorVisible();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -391,18 +391,36 @@ export class EditorStateManager {
 
   // ── Ensure cursor is in viewport ─────────────────────────────────────────
 
-  private ensureCursorVisible() {
-    const { lineHeight, contentPaddingTop } = EDITOR_THEME;
-    const cursorY =
-      contentPaddingTop + (this.cursorLine - 1) * lineHeight;
-    const viewTop = this.scrollOffset.y;
-    const viewBottom = viewTop + this.viewport.height;
+  scrollToCursor(forceCenter: boolean = false) {
+    if (this.viewport.height === 0) return;
 
-    if (cursorY < viewTop) {
-      this.scrollOffset.y = cursorY;
-    } else if (cursorY + lineHeight > viewBottom) {
-      this.scrollOffset.y = cursorY + lineHeight - this.viewport.height;
+    const { lineHeight, contentPaddingTop } = EDITOR_THEME;
+    const cursorY = contentPaddingTop + (this.cursorLine - 1) * lineHeight;
+    
+    let targetY = this.scrollOffset.y;
+
+    if (forceCenter) {
+      targetY = cursorY - this.viewport.height / 2 + lineHeight / 2;
+    } else {
+      const viewTop = this.scrollOffset.y;
+      const viewBottom = viewTop + this.viewport.height;
+      const SCROLL_MARGIN = 40; // Maintain 40px clearance from top and bottom edges
+
+      if (cursorY < viewTop + SCROLL_MARGIN) {
+        targetY = cursorY - SCROLL_MARGIN;
+      } else if (cursorY + lineHeight > viewBottom - SCROLL_MARGIN) {
+        targetY = cursorY + lineHeight - this.viewport.height + SCROLL_MARGIN;
+      }
     }
+
+    // Important: maxY must allow enough scroll space to reach the target!
+    // We add half a viewport of padding to totalContentHeight to allow 
+    // "Scroll Beyond Last Line". This prevents the last line from getting 
+    // artificially clamped under the keyboard and allows it to be centered.
+    const scrollableHeight = this.totalContentHeight + (this.viewport.height / 2); 
+    const maxY = Math.max(0, scrollableHeight - this.viewport.height);
+    
+    this.scrollOffset.y = Math.max(0, Math.min(maxY, targetY));
   }
 
   // ── Cleanup ──────────────────────────────────────────────────────────────
