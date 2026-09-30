@@ -13,6 +13,7 @@ import { useRef, useCallback, useMemo } from "react";
 import { Gesture } from "react-native-gesture-handler";
 import type { ComposedGestureType } from "react-native-gesture-handler/lib/typescript/handlers/gestures/gestureComposition";
 import type { EditorStateManager } from "./EditorStateManager";
+import { useEditorPreferences } from "@/store/useEditorPreferences";
 
 export interface UseEditorScrollReturn {
   /** The composed gesture to attach to `<GestureDetector>`. */
@@ -30,6 +31,9 @@ export function useEditorScroll(
   // Track which axis we are locked to for this gesture
   const scrollLock = useRef<'vertical' | 'horizontal' | 'none'>('none');
 
+  // Pull dynamic preference from Zustand
+  const { directionalLockEnabled } = useEditorPreferences();
+
   const panGesture = Gesture.Pan()
     .onStart(() => {
       stateManager.stopMomentumScroll();
@@ -38,16 +42,21 @@ export function useEditorScroll(
       scrollLock.current = 'none';
     })
     .onUpdate((e) => {
-      // Fingers are imprecise. The first 5 pixels of a horizontal swipe 
-      // are often slightly diagonal, causing false-positive vertical locks.
-      // We wait until the gesture has moved 20 pixels in any direction 
-      // to establish a clean, undeniable trajectory before permanently locking.
-      if (scrollLock.current === 'none') {
-        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          scrollLock.current = Math.abs(e.translationX) > Math.abs(e.translationY)
-            ? 'horizontal'
-            : 'vertical';
+      if (directionalLockEnabled) {
+        // Fingers are imprecise. The first 5 pixels of a horizontal swipe 
+        // are often slightly diagonal, causing false-positive vertical locks.
+        // We wait until the gesture has moved 20 pixels in any direction 
+        // to establish a clean, undeniable trajectory before permanently locking.
+        if (scrollLock.current === 'none') {
+          if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
+            scrollLock.current = Math.abs(e.translationX) > Math.abs(e.translationY)
+              ? 'horizontal'
+              : 'vertical';
+          }
         }
+      } else {
+        // If disabled, never lock axes
+        scrollLock.current = 'none';
       }
 
       // While 'none', we freely apply both (natural micro-movements)
