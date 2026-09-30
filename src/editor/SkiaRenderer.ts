@@ -242,7 +242,7 @@ function drawEditorToCanvas(
 
   // ── 7. Draw cursor ────────────────────────────────────────────────────
   if (state.cursorVisible) {
-    const cx = state.getCursorX(charWidth);
+    const cx = state.getCursorX();
     const cy = state.getCursorY();
 
     if (cy >= -lineHeight && cy < canvasHeight && cx >= gutterWidth) {

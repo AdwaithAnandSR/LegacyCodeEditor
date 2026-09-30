@@ -69,6 +69,7 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   const resourcesRef = useRef<SkiaRendererResources | null>(null);
   if (fontProvider && !resourcesRef.current) {
     resourcesRef.current = createRendererResources(fontProvider);
+    stateManager.charWidth = resourcesRef.current.charWidth;
   }
 
   // ── 4. Canvas size tracking (via ref to avoid stale closures) ────────
@@ -120,8 +121,7 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
     useEditorInput(stateManager);
 
   // ── 7. Scroll / tap gesture ────────────────────────────────────────────
-  const charWidth = resourcesRef.current?.charWidth ?? 8;
-  const { gesture } = useEditorScroll(stateManager, charWidth, focus);
+  const { gesture } = useEditorScroll(stateManager, focus);
 
   // ── 8. Loading state ──────────────────────────────────────────────────
   if (!fontProvider || !resourcesRef.current) {

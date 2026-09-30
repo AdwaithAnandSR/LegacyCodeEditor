@@ -21,7 +21,6 @@ export interface UseEditorScrollReturn {
 
 export function useEditorScroll(
   stateManager: EditorStateManager,
-  charWidth: number,
   onTap?: () => void,
 ): UseEditorScrollReturn {
   // Track the scroll offset at the start of each pan
@@ -47,7 +46,7 @@ export function useEditorScroll(
 
   const tapGesture = Gesture.Tap()
     .onEnd((e) => {
-      stateManager.handleTap(e.x, e.y, charWidth);
+      stateManager.handleTap(e.x, e.y);
       onTap?.();
     })
     .maxDuration(250)

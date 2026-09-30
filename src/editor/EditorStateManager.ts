@@ -62,6 +62,7 @@ export class EditorStateManager {
   // ── Viewport (set by the canvas on layout) ───────────────────────────────
   viewport: ViewportInfo = { height: 0, width: 0 };
   isKeyboardVisible: boolean = false;
+  charWidth: number = 0;
 
   // ── Invalidation callback (set by the Skia layer) ────────────────────────
   private _invalidate: InvalidateCallback | null = null;
@@ -322,11 +323,11 @@ export class EditorStateManager {
    * Compute the cursor X offset for the current column.
    * Uses character width (monospace font → all chars same width).
    */
-  getCursorX(charWidth: number): number {
+  getCursorX(): number {
     return (
       EDITOR_THEME.gutterWidth +
       EDITOR_THEME.contentPaddingLeft +
-      this.cursorColumn * charWidth -
+      this.cursorColumn * this.charWidth -
       this.scrollOffset.x
     );
   }
@@ -344,7 +345,9 @@ export class EditorStateManager {
    * Given a tap in canvas coordinates, move the cursor to the
    * nearest line/column.
    */
-  handleTap(canvasX: number, canvasY: number, charWidth: number) {
+  handleTap(canvasX: number, canvasY: number) {
+    if (this.charWidth === 0) return;
+    
     const { lineHeight, contentPaddingTop, gutterWidth, contentPaddingLeft } =
       EDITOR_THEME;
 
@@ -355,7 +358,7 @@ export class EditorStateManager {
 
     // Compute column (only in content area, not gutter)
     const contentX = canvasX - gutterWidth - contentPaddingLeft + this.scrollOffset.x;
-    let col = Math.round(contentX / charWidth);
+    let col = Math.round(contentX / this.charWidth);
     col = Math.max(0, col);
 
     // Clamp column to line length
@@ -401,23 +404,41 @@ export class EditorStateManager {
     const { lineHeight, contentPaddingTop } = EDITOR_THEME;
     const cursorY = contentPaddingTop + (this.cursorLine - 1) * lineHeight;
     
+    // --- Y Scrolling Math ---
     let targetY = this.scrollOffset.y;
-
     if (forceCenter || this.isKeyboardVisible) {
       targetY = cursorY - this.viewport.height * EDITOR_THEME.typewriterOffset + lineHeight / 2;
     } else {
       const viewTop = this.scrollOffset.y;
       const viewBottom = viewTop + this.viewport.height;
-      const SCROLL_MARGIN = 40; // Maintain 40px clearance from top and bottom edges
+      const SCROLL_MARGIN_Y = 40;
 
-      if (cursorY < viewTop + SCROLL_MARGIN) {
-        targetY = cursorY - SCROLL_MARGIN;
-      } else if (cursorY + lineHeight > viewBottom - SCROLL_MARGIN) {
-        targetY = cursorY + lineHeight - this.viewport.height + SCROLL_MARGIN;
+      if (cursorY < viewTop + SCROLL_MARGIN_Y) {
+        targetY = cursorY - SCROLL_MARGIN_Y;
+      } else if (cursorY + lineHeight > viewBottom - SCROLL_MARGIN_Y) {
+        targetY = cursorY + lineHeight - this.viewport.height + SCROLL_MARGIN_Y;
       }
     }
 
-    // Use unified maxScrollY to allow "Scroll Beyond Last Line"
+    // --- X Scrolling Math ---
+    let targetX = this.scrollOffset.x;
+    if (this.charWidth > 0) {
+      const SCROLL_MARGIN_X = 20;
+      const textXOffset = this.cursorColumn * this.charWidth;
+      const absoluteCursorX = EDITOR_THEME.gutterWidth + EDITOR_THEME.contentPaddingLeft + textXOffset;
+      
+      // Left boundary (prevent scrolling left text under the fixed gutter)
+      if (textXOffset - this.scrollOffset.x < SCROLL_MARGIN_X) {
+        targetX = textXOffset - SCROLL_MARGIN_X;
+      } 
+      // Right boundary (prevent text going off the right edge)
+      else if (absoluteCursorX - this.scrollOffset.x > this.viewport.width - SCROLL_MARGIN_X) {
+        targetX = absoluteCursorX - this.viewport.width + SCROLL_MARGIN_X;
+      }
+    }
+
+    // Apply bounds
+    this.scrollOffset.x = Math.max(0, targetX);
     this.scrollOffset.y = Math.max(0, Math.min(this.maxScrollY, targetY));
   }
 
