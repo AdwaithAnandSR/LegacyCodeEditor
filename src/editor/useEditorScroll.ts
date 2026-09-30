@@ -29,6 +29,7 @@ export function useEditorScroll(
 
   const panGesture = Gesture.Pan()
     .onStart(() => {
+      stateManager.stopMomentumScroll();
       panStartY.current = stateManager.scrollOffset.y;
       panStartX.current = stateManager.scrollOffset.x;
     })
@@ -40,6 +41,9 @@ export function useEditorScroll(
         y: Math.max(0, Math.min(stateManager.maxScrollY, newY)),
       };
       stateManager.invalidate();
+    })
+    .onEnd((e) => {
+      stateManager.startMomentumScroll(e.velocityX, e.velocityY);
     })
     .minDistance(5)
     .runOnJS(true);

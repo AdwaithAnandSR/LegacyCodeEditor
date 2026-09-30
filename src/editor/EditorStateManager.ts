@@ -259,6 +259,64 @@ export class EditorStateManager {
     return Math.max(0, scrollableHeight - this.viewport.height);
   }
 
+  // ── Momentum Scrolling ──
+  private _momentumAnimId: number | null = null;
+  private _momentumVelocity = { x: 0, y: 0 };
+  private _lastMomentumTime = 0;
+
+  startMomentumScroll(velocityX: number, velocityY: number) {
+    this.stopMomentumScroll();
+    
+    // Velocity is from the finger. If finger moves down (positive Y), 
+    // we want to scroll up (decrease scrollOffset.y). Thus, negate velocity.
+    this._momentumVelocity = { x: -velocityX, y: -velocityY };
+    this._lastMomentumTime = global.performance ? performance.now() : Date.now();
+    
+    const tick = (time: number) => {
+      // requestAnimationFrame passes a timestamp, but it might be based on 
+      // a different epoch than our starting time depending on the RN version.
+      // We calculate our own delta safely.
+      const now = global.performance ? performance.now() : Date.now();
+      const dt = now - this._lastMomentumTime;
+      this._lastMomentumTime = now;
+
+      // Standard mobile deceleration rate (approx 0.998 per ms)
+      const friction = 0.998; 
+      const powFriction = Math.pow(friction, dt);
+      
+      this._momentumVelocity.x *= powFriction;
+      this._momentumVelocity.y *= powFriction;
+
+      const dx = this._momentumVelocity.x * (dt / 1000);
+      const dy = this._momentumVelocity.y * (dt / 1000);
+
+      const oldX = this.scrollOffset.x;
+      const oldY = this.scrollOffset.y;
+
+      this.scrollBy(dx, dy);
+
+      // Stop condition: Velocity dropped below 10px/s, OR we hit a hard wall
+      const hitXBound = Math.abs(dx) > 0.1 && this.scrollOffset.x === oldX;
+      const hitYBound = Math.abs(dy) > 0.1 && this.scrollOffset.y === oldY;
+      const velocityTooLow = Math.abs(this._momentumVelocity.x) < 10 && Math.abs(this._momentumVelocity.y) < 10;
+
+      if (velocityTooLow || (hitXBound && hitYBound)) {
+        this.stopMomentumScroll();
+      } else {
+        this._momentumAnimId = requestAnimationFrame(tick);
+      }
+    };
+    
+    this._momentumAnimId = requestAnimationFrame(tick);
+  }
+
+  stopMomentumScroll() {
+    if (this._momentumAnimId !== null) {
+      cancelAnimationFrame(this._momentumAnimId);
+      this._momentumAnimId = null;
+    }
+  }
+
   /**
    * Update scroll offset (e.g. from a pan gesture).
    * Clamps to valid bounds.
@@ -346,6 +404,7 @@ export class EditorStateManager {
    * nearest line/column.
    */
   handleTap(canvasX: number, canvasY: number) {
+    this.stopMomentumScroll();
     if (this.charWidth === 0) return;
     
     const { lineHeight, contentPaddingTop, gutterWidth, contentPaddingLeft } =
