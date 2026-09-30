@@ -48,7 +48,8 @@ export function useEditorScroll(
           };
           stateManager.invalidate();
         })
-        .minDistance(5),
+        .minDistance(5)
+        .runOnJS(true),
     [stateManager],
   );
 
@@ -59,7 +60,8 @@ export function useEditorScroll(
           stateManager.handleTap(e.x, e.y, charWidth);
           onTap?.();
         })
-        .maxDuration(250),
+        .maxDuration(250)
+        .runOnJS(true),
     [stateManager, charWidth, onTap],
   );
 
