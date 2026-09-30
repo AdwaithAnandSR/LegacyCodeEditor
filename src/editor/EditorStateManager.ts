@@ -252,24 +252,27 @@ export class EditorStateManager {
     this.viewport = { width, height };
   }
 
+  get maxScrollY(): number {
+    const scrollableHeight = this.totalContentHeight + (this.viewport.height / 2); 
+    return Math.max(0, scrollableHeight - this.viewport.height);
+  }
+
   /**
    * Update scroll offset (e.g. from a pan gesture).
    * Clamps to valid bounds.
    */
   scrollBy(dx: number, dy: number) {
-    const maxY = this.totalContentHeight - this.viewport.height;
     this.scrollOffset = {
       x: Math.max(0, this.scrollOffset.x + dx),
-      y: Math.max(0, Math.min(maxY, this.scrollOffset.y + dy)),
+      y: Math.max(0, Math.min(this.maxScrollY, this.scrollOffset.y + dy)),
     };
     this.invalidate();
   }
 
   scrollTo(y: number) {
-    const maxY = Math.max(0, this.totalContentHeight - this.viewport.height);
     this.scrollOffset = {
       x: this.scrollOffset.x,
-      y: Math.max(0, Math.min(maxY, y)),
+      y: Math.max(0, Math.min(this.maxScrollY, y)),
     };
     this.invalidate();
   }
@@ -413,14 +416,8 @@ export class EditorStateManager {
       }
     }
 
-    // Important: maxY must allow enough scroll space to reach the target!
-    // We add half a viewport of padding to totalContentHeight to allow 
-    // "Scroll Beyond Last Line". This prevents the last line from getting 
-    // artificially clamped under the keyboard and allows it to be centered.
-    const scrollableHeight = this.totalContentHeight + (this.viewport.height / 2); 
-    const maxY = Math.max(0, scrollableHeight - this.viewport.height);
-    
-    this.scrollOffset.y = Math.max(0, Math.min(maxY, targetY));
+    // Use unified maxScrollY to allow "Scroll Beyond Last Line"
+    this.scrollOffset.y = Math.max(0, Math.min(this.maxScrollY, targetY));
   }
 
   // ── Cleanup ──────────────────────────────────────────────────────────────

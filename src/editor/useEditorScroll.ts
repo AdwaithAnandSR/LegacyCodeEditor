@@ -36,13 +36,9 @@ export function useEditorScroll(
     .onUpdate((e) => {
       const newY = panStartY.current - e.translationY;
       const newX = panStartX.current - e.translationX;
-      const maxY = Math.max(
-        0,
-        stateManager.totalContentHeight - stateManager.viewport.height,
-      );
       stateManager.scrollOffset = {
         x: Math.max(0, newX),
-        y: Math.max(0, Math.min(maxY, newY)),
+        y: Math.max(0, Math.min(stateManager.maxScrollY, newY)),
       };
       stateManager.invalidate();
     })
