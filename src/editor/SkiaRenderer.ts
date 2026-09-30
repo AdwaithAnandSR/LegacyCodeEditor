@@ -90,15 +90,20 @@ export function createRendererResources(
   };
 }
 
-// ── Line Paragraph Builders ─────────────────────────────────────────────────
+// ── Paragraph Caching (Crucial for 120fps scrolling) ────────────────────────
+// Skia ParagraphBuilder is fast, but doing it 40x per frame on the JS thread
+// bottlenecks the gesture event queue, causing "out of control" scrolling lag.
 
-/**
- * Build a Skia Paragraph for a single line of code text.
- */
-function buildLineParagraph(
+const lineParagraphCache = new Map<string, SkParagraph>();
+const lineNumberCache = new Map<string, SkParagraph>();
+
+function getCachedLineParagraph(
   text: string,
   fontProvider: SkTypefaceFontProvider,
 ): SkParagraph {
+  if (lineParagraphCache.has(text)) {
+    return lineParagraphCache.get(text)!;
+  }
   const para = Skia.ParagraphBuilder.Make(
     {
       textStyle: {
@@ -111,18 +116,25 @@ function buildLineParagraph(
   )
     .addText(text || " ") // empty lines still need a space for height
     .build();
-  para.layout(1e6); // no wrapping — infinite width
+  para.layout(1e6); // no wrapping
+  
+  lineParagraphCache.set(text, para);
+  if (lineParagraphCache.size > 5000) {
+    // Basic memory management: clear cache if it gets too large
+    lineParagraphCache.clear();
+  }
   return para;
 }
 
-/**
- * Build a Skia Paragraph for a line number in the gutter.
- */
-function buildLineNumberParagraph(
+function getCachedLineNumberParagraph(
   lineNum: number,
   isActive: boolean,
   fontProvider: SkTypefaceFontProvider,
 ): SkParagraph {
+  const cacheKey = `${lineNum}-${isActive}`;
+  if (lineNumberCache.has(cacheKey)) {
+    return lineNumberCache.get(cacheKey)!;
+  }
   const para = Skia.ParagraphBuilder.Make(
     {
       textAlign: TextAlign.Right,
@@ -141,6 +153,11 @@ function buildLineNumberParagraph(
     .addText(String(lineNum))
     .build();
   para.layout(EDITOR_THEME.gutterWidth - EDITOR_THEME.gutterPaddingRight);
+  
+  lineNumberCache.set(cacheKey, para);
+  if (lineNumberCache.size > 1000) {
+    lineNumberCache.clear();
+  }
   return para;
 }
 
@@ -209,7 +226,7 @@ function drawEditorToCanvas(
     const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
 
     // -- Line number
-    const lineNumPara = buildLineNumberParagraph(
+    const lineNumPara = getCachedLineNumberParagraph(
       lineNum,
       lineNum === state.cursorLine,
       fontProvider,
@@ -218,7 +235,7 @@ function drawEditorToCanvas(
 
     // -- Line text
     const lineText = state.engine.getLine(lineNum);
-    const para = buildLineParagraph(lineText, fontProvider);
+    const para = getCachedLineParagraph(lineText, fontProvider);
     const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
     para.paint(canvas, textX, textY);
   }
