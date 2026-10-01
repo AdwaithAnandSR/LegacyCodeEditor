@@ -242,6 +242,10 @@ function drawEditorToCanvas(
   const { firstLine, lastLine } = state.getVisibleRange();
   
   const syntaxTokens = state.engine.getSyntaxTokens(firstLine, lastLine);
+
+
+    console.log(syntaxTokens)
+    
   const tokensByLine: Record<number, SyntaxToken[]> = {};
   for (const token of syntaxTokens) {
     if (!tokensByLine[token.line]) tokensByLine[token.line] = [];
@@ -445,7 +449,7 @@ function drawEditorToCanvas(
     const drawHandle = (x: number, y: number) => {
         if (y + lineHeight >= state.scrollOffset.y && y <= state.scrollOffset.y + canvasHeight && x >= gutterWidth) {
             canvas.drawRect(Skia.XYWHRect(x, y, cursorWidth, lineHeight), PAINTS.handle);
-            canvas.drawCircle(x + cursorWidth / 2, y + lineHeight + 6, 6, PAINTS.handle);
+            canvas.drawCircle(x + cursorWidth / 2, y + lineHeight + 10, 10, PAINTS.handle);
         }
     };
     drawHandle(startX, startY);
