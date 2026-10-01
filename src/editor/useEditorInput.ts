@@ -89,10 +89,8 @@ export function useEditorInput(stateManager: EditorStateManager) {
       }
 
       // Apply the diff to our engine
-      if (isBackspace) {
-        for (let i = 0; i < backspaceCount; i++) {
-          stateManager.backspace();
-        }
+      if (isBackspace && backspaceCount > 0) {
+        stateManager.backspace(backspaceCount);
       } else if (diffStr.length > 0) {
         stateManager.insertAtCursor(diffStr);
       }

@@ -169,7 +169,7 @@ export class EditorStateManager {
   /**
    * Delete the character before the cursor (backspace).
    */
-  backspace() {
+  backspace(count: number = 1) {
     const normSel = this.getNormalizedSelection();
     if (normSel) {
       this.engine.deleteText(normSel);
@@ -183,27 +183,42 @@ export class EditorStateManager {
 
     if (this.cursorColumn === 0 && this.cursorLine === 1) return;
 
-    let deleteLine: number;
-    let deleteColStart: number;
+    if (count === 1) {
+      let deleteLine: number;
+      let deleteColStart: number;
 
-    if (this.cursorColumn > 0) {
-      // Delete one character on the same line
-      deleteLine = this.cursorLine;
-      deleteColStart = this.cursorColumn - 1;
+      if (this.cursorColumn > 0) {
+        // Delete one character on the same line
+        deleteLine = this.cursorLine;
+        deleteColStart = this.cursorColumn - 1;
+      } else {
+        // At column 0: merge with previous line
+        deleteLine = this.cursorLine - 1;
+        deleteColStart = this.engine.getLineLength(deleteLine);
+      }
+
+      this.engine.deleteText({
+        startLine: deleteLine,
+        startColumn: deleteColStart,
+        endLine: this.cursorLine,
+        endColumn: this.cursorColumn,
+      });
+      this.setCursor(deleteLine, deleteColStart);
     } else {
-      // At column 0: merge with previous line
-      deleteLine = this.cursorLine - 1;
-      deleteColStart = this.engine.getLineLength(deleteLine);
+      // Bulk delete (e.g. from a native keyboard Undo after a large paste)
+      const currentOffset = this.engine.getOffsetAt(this.cursorLine, this.cursorColumn);
+      const targetOffset = Math.max(0, currentOffset - count);
+      const startPos = this.engine.getPositionAt(targetOffset);
+      
+      this.engine.deleteText({
+        startLine: startPos.line,
+        startColumn: startPos.column,
+        endLine: this.cursorLine,
+        endColumn: this.cursorColumn,
+      });
+      this.setCursor(startPos.line, startPos.column);
     }
 
-    this.engine.deleteText({
-      startLine: deleteLine,
-      startColumn: deleteColStart,
-      endLine: this.cursorLine,
-      endColumn: this.cursorColumn,
-    });
-
-    this.setCursor(deleteLine, deleteColStart);
     this.resetBlink();
     this.scrollToCursor();
     this.invalidate();
