@@ -61,6 +61,7 @@ export class EditorStateManager {
   activeHandle: 'start' | 'end' | null = null;
   isDraggingSelection: boolean = false;
   _initialWordSelection: TextRange | null = null;
+  floatingMenuVisible: boolean = true;
 
   getNormalizedSelection(): TextRange | null {
     if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
@@ -105,6 +106,10 @@ export class EditorStateManager {
   }
 
   // ── Public API ───────────────────────────────────────────────────────────
+
+  get floatingMenuSnapshot() {
+    return `${this.selection?.startLine},${this.selection?.startColumn},${this.selection?.endLine},${this.selection?.endColumn},${this.isDraggingSelection},${this.floatingMenuVisible},${this.scrollOffset.y}`;
+  }
 
   /**
    * Register a callback that the Skia layer calls to know when to redraw.
@@ -333,6 +338,7 @@ export class EditorStateManager {
 
   startMomentumScroll(velocityX: number, velocityY: number) {
     this.stopMomentumScroll();
+
     
     // Velocity is from the finger. If finger moves down (positive Y), 
     // we want to scroll up (decrease scrollOffset.y). Thus, negate velocity.
@@ -369,6 +375,7 @@ export class EditorStateManager {
 
       if (velocityTooLow || (hitXBound && hitYBound)) {
         this.stopMomentumScroll();
+
       } else {
         this._momentumAnimId = requestAnimationFrame(tick);
       }
@@ -574,16 +581,42 @@ export class EditorStateManager {
     return { line, column: col };
   }
 
+  isPositionInSelection(line: number, column: number): boolean {
+    const sel = this.getNormalizedSelection();
+    if (!sel) return false;
+    
+    if (line < sel.startLine || line > sel.endLine) return false;
+    if (line === sel.startLine && column < sel.startColumn) return false;
+    if (line === sel.endLine && column > sel.endColumn) return false;
+    return true;
+  }
+
   /**
    * Given a tap in canvas coordinates, move the cursor to the
    * nearest line/column.
    */
   handleTap(canvasX: number, canvasY: number) {
     this.stopMomentumScroll();
+    
+    const handle = this.getHandleAt(canvasX, canvasY);
+    if (handle) {
+      this.floatingMenuVisible = true;
+      this.invalidate();
+      return;
+    }
+
     const pos = this.getLineColumn(canvasX, canvasY);
+
+    if (this.isPositionInSelection(pos.line, pos.column)) {
+      this.floatingMenuVisible = !this.floatingMenuVisible;
+      this.invalidate();
+      return;
+    }
 
     this.selection = null;
     this.activeHandle = null;
+    this._initialWordSelection = null;
+    this.floatingMenuVisible = true;
     this.setCursor(pos.line, pos.column);
     
     // Crucial: if they tapped in the empty void to the right, the column clamped.
@@ -594,6 +627,7 @@ export class EditorStateManager {
 
   handleWordSelection(canvasX: number, canvasY: number) {
     this.stopMomentumScroll();
+    this.floatingMenuVisible = true;
     const pos = this.getLineColumn(canvasX, canvasY);
     const wordRange = this.engine.getWordRangeAtPosition(pos.line, pos.column);
 
@@ -616,6 +650,7 @@ export class EditorStateManager {
 
   handleSelectionStart(canvasX: number, canvasY: number) {
     this.stopMomentumScroll();
+    this.floatingMenuVisible = true;
     const pos = this.getLineColumn(canvasX, canvasY);
     const wordRange = this.engine.getWordRangeAtPosition(pos.line, pos.column);
 

@@ -7,10 +7,10 @@ import { EDITOR_THEME } from './theme';
 
 export function FloatingMenu({ stateManager }: { stateManager: EditorStateManager }) {
   // Sync with state manager's UI updates
-  useSyncExternalStore(stateManager.subscribeUI, () => stateManager.selection);
+  useSyncExternalStore(stateManager.subscribeUI, () => stateManager.floatingMenuSnapshot);
 
   const selection = stateManager.selection;
-  if (!selection || stateManager.isDraggingSelection) return null;
+  if (!selection || stateManager.isDraggingSelection || !stateManager.floatingMenuVisible) return null;
 
   const handleCopy = async () => {
     const normSel = stateManager.getNormalizedSelection();
