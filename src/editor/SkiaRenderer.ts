@@ -449,7 +449,9 @@ function drawEditorToCanvas(
 
   // ── 6. Draw cursor ────────────────────────────────────────────────────
   const hasRangeSelection = state.selection && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn);
-  if (state.cursorVisible && !hasRangeSelection) {
+  const isZeroWidthSelection = state.selection && !hasRangeSelection;
+  
+  if ((state.cursorVisible || isZeroWidthSelection) && !hasRangeSelection) {
     // getCursorX() subtracts scrollOffset.x, making it a screen coordinate.
     // getCursorY() calls getLineY(), making it an absolute document coordinate.
     // This perfectly matches our hybrid translated canvas.
@@ -465,6 +467,15 @@ function drawEditorToCanvas(
         Skia.XYWHRect(cx, cy, cursorWidth, lineHeight),
         PAINTS.cursor,
       );
+      
+      // If the floating menu is active (e.g. they long pressed empty space to paste),
+      // draw the teardrop handle underneath the cursor so it looks like a selected insertion point.
+      if (state.floatingMenuVisible && state.selection) {
+        canvas.save();
+        canvas.translate(cx + cursorWidth / 2, cy + lineHeight + 15);
+        canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
+        canvas.restore();
+      }
     }
   }
 

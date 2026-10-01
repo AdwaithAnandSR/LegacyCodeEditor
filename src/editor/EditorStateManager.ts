@@ -815,7 +815,8 @@ export class EditorStateManager {
     // --- X Scrolling Math ---
     let targetX = this.scrollOffset.x;
     if (this.charWidth > 0) {
-      const SCROLL_MARGIN_X = 20;
+      // 10% of the screen width margin means it will auto-scroll when the cursor crosses the 90% mark
+      const SCROLL_MARGIN_X = Math.max(20, this.viewport.width * 0.1);
       const textXOffset = this.cursorColumn * this.charWidth;
       const absoluteCursorX = EDITOR_THEME.gutterWidth + EDITOR_THEME.contentPaddingLeft + textXOffset;
       
