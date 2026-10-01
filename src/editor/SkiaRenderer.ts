@@ -27,6 +27,7 @@ import {
 } from "@shopify/react-native-skia";
 import type { EditorStateManager } from "./EditorStateManager";
 import { EDITOR_THEME } from "./theme";
+import type { SyntaxToken } from "editor-engine";
 
 // ── Re-export TextAlign since it's in a sub-module ───────────────────────────
 import { TextAlign } from "@shopify/react-native-skia";
@@ -101,11 +102,19 @@ const lineNumberCache = new Map<string, SkParagraph>();
 function getCachedLineParagraph(
   text: string,
   fontProvider: SkTypefaceFontProvider,
+  tokens?: SyntaxToken[],
+  safeStart: number = 0,
 ): SkParagraph {
-  if (lineParagraphCache.has(text)) {
-    return lineParagraphCache.get(text)!;
+  let cacheKey = text;
+  if (tokens && tokens.length > 0) {
+    cacheKey += "|" + tokens.map(t => `${t.startColumn}-${t.endColumn}-${t.tokenType}`).join(',');
   }
-  const para = Skia.ParagraphBuilder.Make(
+
+  if (lineParagraphCache.has(cacheKey)) {
+    return lineParagraphCache.get(cacheKey)!;
+  }
+
+  const builder = Skia.ParagraphBuilder.Make(
     {
       textStyle: {
         fontSize: EDITOR_THEME.fontSize,
@@ -114,14 +123,46 @@ function getCachedLineParagraph(
       },
     },
     fontProvider,
-  )
-    .addText(text || " ") // empty lines still need a space for height
-    .build();
+  );
+
+  if (!text) {
+    builder.addText(" ");
+  } else if (!tokens || tokens.length === 0) {
+    builder.addText(text);
+  } else {
+    let currentIdx = 0;
+    for (const token of tokens) {
+      const tStart = Math.max(0, token.startColumn - safeStart);
+      const tEnd = Math.min(text.length, token.endColumn - safeStart);
+      
+      if (tEnd <= tStart || tStart >= text.length) continue;
+      
+      if (tStart > currentIdx) {
+        builder.pushStyle({ fontSize: EDITOR_THEME.fontSize, fontFamilies: [EDITOR_THEME.fontFamily], color: Skia.Color(EDITOR_THEME.syntaxColors.default) });
+        builder.addText(text.substring(currentIdx, tStart));
+        builder.pop();
+      }
+      
+      const colorHex = EDITOR_THEME.syntaxColors[token.tokenType as keyof typeof EDITOR_THEME.syntaxColors] || EDITOR_THEME.syntaxColors.default;
+      builder.pushStyle({ fontSize: EDITOR_THEME.fontSize, fontFamilies: [EDITOR_THEME.fontFamily], color: Skia.Color(colorHex) });
+      builder.addText(text.substring(tStart, tEnd));
+      builder.pop();
+      
+      currentIdx = tEnd;
+    }
+    
+    if (currentIdx < text.length) {
+      builder.pushStyle({ fontSize: EDITOR_THEME.fontSize, fontFamilies: [EDITOR_THEME.fontFamily], color: Skia.Color(EDITOR_THEME.syntaxColors.default) });
+      builder.addText(text.substring(currentIdx));
+      builder.pop();
+    }
+  }
+
+  const para = builder.build();
   para.layout(1e6); // no wrapping
   
-  lineParagraphCache.set(text, para);
+  lineParagraphCache.set(cacheKey, para);
   if (lineParagraphCache.size > 5000) {
-    // Basic memory management: clear cache if it gets too large
     lineParagraphCache.clear();
   }
   return para;
@@ -198,6 +239,14 @@ function drawEditorToCanvas(
 
   // ── 3. Compute visible range for mathematical virtualization ───────────
   const { firstLine, lastLine } = state.getVisibleRange();
+  
+  const syntaxTokens = state.engine.getSyntaxTokens(firstLine, lastLine);
+  const tokensByLine: Record<number, SyntaxToken[]> = {};
+  for (const token of syntaxTokens) {
+    if (!tokensByLine[token.line]) tokensByLine[token.line] = [];
+    tokensByLine[token.line].push(token);
+  }
+
   const contentAreaWidth = canvasWidth - gutterWidth - contentPaddingLeft;
 
   // Calculate Horizontal Virtualization bounds
@@ -321,14 +370,42 @@ function drawEditorToCanvas(
       const slicedText = lineText.substring(safeStart, safeEnd);
       
       if (slicedText.length > 0) {
-        const para = getCachedLineParagraph(slicedText, fontProvider);
+        let lineTokens = tokensByLine[lineNum] || [];
+        if (lineTokens.length > 0) {
+          lineTokens = adjustTokensForTabs(rawLine, lineTokens);
+          lineTokens.sort((a, b) => a.startColumn - b.startColumn || (b.endColumn - a.endColumn));
+          const filtered = [];
+          let lastEnd = -1;
+          for (const t of lineTokens) {
+              if (t.startColumn >= lastEnd) {
+                  filtered.push(t);
+                  lastEnd = t.endColumn;
+              }
+          }
+          lineTokens = filtered;
+        }
+        const para = getCachedLineParagraph(slicedText, fontProvider, lineTokens, safeStart);
         const charX = safeStart * charWidth;
         const textX = gutterWidth + contentPaddingLeft + charX - state.scrollOffset.x;
         para.paint(canvas, textX, textY);
       }
     } else if (charWidth === 0 && lineText.length > 0) {
       // Fallback if charWidth hasn't loaded
-      const para = getCachedLineParagraph(lineText, fontProvider);
+      let lineTokens = tokensByLine[lineNum] || [];
+      if (lineTokens.length > 0) {
+          lineTokens = adjustTokensForTabs(rawLine, lineTokens);
+          lineTokens.sort((a, b) => a.startColumn - b.startColumn || (b.endColumn - a.endColumn));
+          const filtered = [];
+          let lastEnd = -1;
+          for (const t of lineTokens) {
+              if (t.startColumn >= lastEnd) {
+                  filtered.push(t);
+                  lastEnd = t.endColumn;
+              }
+          }
+          lineTokens = filtered;
+      }
+      const para = getCachedLineParagraph(lineText, fontProvider, lineTokens, 0);
       const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
       para.paint(canvas, textX, textY);
     }

@@ -10,6 +10,7 @@ import type {
   DocumentInfo,
   BracketPair,
   LineEnding,
+  SyntaxToken,
 } from './specs/EditorEngine.nitro'
 
 /**
@@ -42,4 +43,5 @@ export type {
   DocumentInfo,
   BracketPair,
   LineEnding,
+  SyntaxToken,
 }

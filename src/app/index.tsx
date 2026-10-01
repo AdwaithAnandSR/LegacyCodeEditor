@@ -5,7 +5,6 @@ import { StatusBar } from "expo-status-bar";
 import { EditorCanvas } from "@/editor";
 
 const SAMPLE_CODE = `// Welcome to LegacyCodeEditor
-// Start typing to edit!
 
 function fibonacci(n: number): number {
   if (n <= 1) return n;
@@ -15,8 +14,6 @@ function fibonacci(n: number): number {
 const result = fibonacci(10);
 console.log("Fibonacci(10) =", result);
 
-// This editor is rendered entirely with Skia
-// for maximum frame-rate on mobile devices.
 `;
 
 import { KeyboardAvoidingView, Platform } from "react-native";

@@ -11,15 +11,19 @@ SyntaxEngine::SyntaxEngine(const PieceTable* pieceTable) : pieceTable_(pieceTabl
     tree_ = nullptr;
     query_ = nullptr;
     
-    const char* query_source = R"(
-        (identifier) @variable
-        (keyword) @keyword
+    const char* query_source = R"(        (identifier) @variable
         (string) @string
         (number) @number
         (comment) @comment
         (function_declaration name: (identifier) @function)
         (call_expression function: (identifier) @function)
         (property_identifier) @property
+        [
+          "import" "export" "from" "class" "function" "const" "let" "var"
+          "if" "else" "for" "while" "do" "switch" "case" "return" "break"
+          "continue" "yield" "await" "async" "try" "catch" "finally" "throw"
+          "new" "delete" "typeof" "instanceof" "in" "of" "true" "false" "null"
+        ] @keyword
     )";
     uint32_t error_offset;
     TSQueryError error_type;
