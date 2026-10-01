@@ -653,9 +653,17 @@ export class EditorStateManager {
     const pos = this.getLineColumn(canvasX, canvasY);
 
     if (this.isPositionInSelection(pos.line, pos.column)) {
-      this.floatingMenuVisible = !this.floatingMenuVisible;
-      this.invalidate();
-      return;
+      const isZeroWidth = this.selection!.startLine === this.selection!.endLine && 
+                          this.selection!.startColumn === this.selection!.endColumn;
+      
+      if (isZeroWidth) {
+        // Tapping the single cursor toggles the paste menu
+        this.floatingMenuVisible = !this.floatingMenuVisible;
+        this.invalidate();
+        return;
+      }
+      // If it's a range selection, we intentionally fall through to clear the selection 
+      // and place the normal blinking cursor where the user tapped.
     }
 
     // If they tapped exactly on the blinking cursor, convert it to a 0-width selection
@@ -698,6 +706,24 @@ export class EditorStateManager {
       this.setCursor(wordRange.endLine, wordRange.endColumn, true);
     }
 
+    this.scrollToCursor(false, true);
+    this.invalidate();
+  }
+
+  selectAll() {
+    this.stopMomentumScroll();
+    const lineCount = this.engine.lineCount;
+    if (lineCount === 0) return;
+    
+    const lastLineLength = this.engine.getLineLength(lineCount);
+    this.selection = {
+      startLine: 1,
+      startColumn: 0,
+      endLine: lineCount,
+      endColumn: lastLineLength,
+    };
+    this.floatingMenuVisible = true;
+    this.setCursor(lineCount, lastLineLength, true);
     this.scrollToCursor(false, true);
     this.invalidate();
   }

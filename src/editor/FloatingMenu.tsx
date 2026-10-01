@@ -119,6 +119,15 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
       <TouchableOpacity onPress={handlePaste} style={styles.button}>
         <Text style={styles.text}>Paste</Text>
       </TouchableOpacity>
+      <View style={styles.divider} />
+      <TouchableOpacity 
+        onPress={() => {
+          stateManager.selectAll();
+        }} 
+        style={styles.button}
+      >
+        <Text style={styles.text}>Select All</Text>
+      </TouchableOpacity>
     </View>
   );
 }
