@@ -533,23 +533,9 @@ export class EditorStateManager {
     if (this.activeHandle === 'start') {
         newSelection.startLine = pos.line;
         newSelection.startColumn = pos.column;
-        
-        // Enforce boundary: start cannot go beyond end
-        if (newSelection.startLine > newSelection.endLine || 
-           (newSelection.startLine === newSelection.endLine && newSelection.startColumn > newSelection.endColumn)) {
-            newSelection.startLine = newSelection.endLine;
-            newSelection.startColumn = newSelection.endColumn;
-        }
     } else {
         newSelection.endLine = pos.line;
         newSelection.endColumn = pos.column;
-        
-        // Enforce boundary: end cannot go before start
-        if (newSelection.endLine < newSelection.startLine || 
-           (newSelection.endLine === newSelection.startLine && newSelection.endColumn < newSelection.startColumn)) {
-            newSelection.endLine = newSelection.startLine;
-            newSelection.endColumn = newSelection.startColumn;
-        }
     }
     
     this.selection = newSelection;
