@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, useRef } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import * as Clipboard from 'expo-clipboard';
@@ -9,8 +9,13 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
   // Sync with state manager's UI updates
   useSyncExternalStore(stateManager.subscribeUI, () => stateManager.floatingMenuSnapshot);
 
+  const sizeRef = useRef({ width: 200, height: 40 });
   const selection = stateManager.selection;
-  if (!selection || stateManager.isDraggingSelection || !stateManager.floatingMenuVisible) return null;
+  
+  if (!selection || stateManager.isDraggingSelection || !stateManager.floatingMenuVisible) {
+    stateManager.floatingMenuBounds = null;
+    return null;
+  }
 
   const handleCopy = async () => {
     const normSel = stateManager.getNormalizedSelection();
@@ -67,12 +72,28 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
   }
 
   // Don't render if completely off screen vertically (at the bottom)
-  if (y > stateManager.viewport.height - 20) return null;
+  if (y > stateManager.viewport.height - 20) {
+    stateManager.floatingMenuBounds = null; // Ensure bounds are cleared if we don't render
+    return null;
+  }
 
   const isSelectionEmpty = selection.startLine === selection.endLine && selection.startColumn === selection.endColumn;
 
+  // We synchronously update the bounds so the next tap can immediately be checked
+  stateManager.floatingMenuBounds = {
+    x, y,
+    width: sizeRef.current.width,
+    height: sizeRef.current.height
+  };
+
   return (
-    <View style={[styles.container, { top: y, left: x }]}>
+    <View 
+      style={[styles.container, { top: y, left: x }]}
+      onLayout={(e) => {
+        sizeRef.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
+        stateManager.floatingMenuBounds = { x, y, width: sizeRef.current.width, height: sizeRef.current.height };
+      }}
+    >
       {!isSelectionEmpty && (
         <>
           <TouchableOpacity onPress={handleCut} style={styles.button}>

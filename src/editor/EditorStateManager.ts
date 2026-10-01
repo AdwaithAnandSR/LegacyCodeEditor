@@ -62,6 +62,7 @@ export class EditorStateManager {
   isDraggingSelection: boolean = false;
   _initialWordSelection: TextRange | null = null;
   floatingMenuVisible: boolean = true;
+  floatingMenuBounds: { x: number, y: number, width: number, height: number } | null = null;
 
   getNormalizedSelection(): TextRange | null {
     if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
@@ -598,6 +599,15 @@ export class EditorStateManager {
   handleTap(canvasX: number, canvasY: number) {
     this.stopMomentumScroll();
     
+    // Check if clicked inside the floating menu
+    if (this.floatingMenuVisible && this.floatingMenuBounds) {
+      const { x, y, width, height } = this.floatingMenuBounds;
+      if (canvasX >= x - 10 && canvasX <= x + width + 10 && 
+          canvasY >= y - 10 && canvasY <= y + height + 10) {
+        return; // Ignore the tap in the editor space, let the menu's buttons handle it
+      }
+    }
+
     const handle = this.getHandleAt(canvasX, canvasY);
     if (handle) {
       this.floatingMenuVisible = true;
