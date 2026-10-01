@@ -40,13 +40,23 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
 
   const handlePaste = async () => {
     const text = await Clipboard.getStringAsync();
+    if (!text) return;
+    
     const normSel = stateManager.getNormalizedSelection();
-    if (text && normSel) {
-      const newPos = stateManager.engine.replaceText(normSel, text);
-      stateManager.setCursor(newPos.line, newPos.column);
-      stateManager.selection = null;
-      stateManager.invalidate();
+    let newPos;
+    
+    if (normSel) {
+      newPos = stateManager.engine.replaceText(normSel, text);
+    } else if (selection) {
+      newPos = stateManager.engine.insertText(selection.startLine, selection.startColumn, text);
+    } else {
+      newPos = stateManager.engine.insertText(stateManager.cursorLine, stateManager.cursorColumn, text);
     }
+    
+    stateManager.setCursor(newPos.line, newPos.column);
+    stateManager.selection = null;
+    stateManager.floatingMenuVisible = false; // Hide menu after pasting
+    stateManager.invalidate();
   };
 
   // Compute position above the selection
