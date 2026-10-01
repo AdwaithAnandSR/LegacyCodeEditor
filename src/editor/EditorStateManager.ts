@@ -747,9 +747,13 @@ export class EditorStateManager {
     
     // --- Y Scrolling Math ---
     let targetY = this.scrollOffset.y;
+    const viewTop = this.scrollOffset.y;
+    const viewBottom = viewTop + this.viewport.height;
     
-    // Only apply typewriter centering if keyboard is visible AND we are not actively selecting/dragging text.
-    const shouldCenter = forceCenter || (this.isKeyboardVisible && !this.isDraggingSelection && !this.selection);
+    // Only apply typewriter centering if keyboard is visible, we are not actively selecting/dragging,
+    // and the cursor goes beyond 70% of the visible screen height.
+    const isBeyond70 = cursorY + lineHeight > viewTop + this.viewport.height * 0.7;
+    const shouldCenter = forceCenter || (this.isKeyboardVisible && !this.isDraggingSelection && !this.selection && isBeyond70);
     
     if (shouldCenter) {
       targetY = cursorY - this.viewport.height * EDITOR_THEME.typewriterOffset + lineHeight / 2;
