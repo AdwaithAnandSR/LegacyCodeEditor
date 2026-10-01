@@ -49,6 +49,7 @@ const PAINTS = {
   currentLineHighlight: makePaint(EDITOR_THEME.currentLineHighlight),
   cursor: makePaint(EDITOR_THEME.cursorColor),
   selectionBg: makePaint(EDITOR_THEME.selectionColor),
+  handle: makePaint(EDITOR_THEME.handleColor),
 };
 
 // ── Renderer Resources ──────────────────────────────────────────────────────
@@ -284,7 +285,7 @@ function drawEditorToCanvas(
   }
 
   // ── 4.5 Draw selection background ──────────────────────────────────────
-  if (state.selection && charWidth > 0) {
+  if (state.selection && charWidth > 0 && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn)) {
     const { startLine, startColumn, endLine, endColumn } = state.selection;
     let sLine = startLine, sCol = startColumn, eLine = endLine, eCol = endColumn;
 
@@ -414,7 +415,8 @@ function drawEditorToCanvas(
   }
 
   // ── 6. Draw cursor ────────────────────────────────────────────────────
-  if (state.cursorVisible) {
+  const hasRangeSelection = state.selection && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn);
+  if (state.cursorVisible && !hasRangeSelection) {
     // getCursorX() subtracts scrollOffset.x, making it a screen coordinate.
     // getCursorY() calls getLineY(), making it an absolute document coordinate.
     // This perfectly matches our hybrid translated canvas.
@@ -431,6 +433,23 @@ function drawEditorToCanvas(
         PAINTS.cursor,
       );
     }
+  }
+
+  // ── 7. Draw selection handles ──────────────────────────────────────────
+  if (state.selection && charWidth > 0 && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn)) {
+    const startX = state.getCursorXFor(state.selection.startColumn);
+    const startY = state.getLineY(state.selection.startLine);
+    const endX = state.getCursorXFor(state.selection.endColumn);
+    const endY = state.getLineY(state.selection.endLine);
+
+    const drawHandle = (x: number, y: number) => {
+        if (y + lineHeight >= state.scrollOffset.y && y <= state.scrollOffset.y + canvasHeight && x >= gutterWidth) {
+            canvas.drawRect(Skia.XYWHRect(x, y, cursorWidth, lineHeight), PAINTS.handle);
+            canvas.drawCircle(x + cursorWidth / 2, y + lineHeight + 6, 6, PAINTS.handle);
+        }
+    };
+    drawHandle(startX, startY);
+    drawHandle(endX, endY);
   }
 
   canvas.restore();

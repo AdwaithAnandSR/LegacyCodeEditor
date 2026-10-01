@@ -14,6 +14,7 @@ export const EDITOR_THEME = {
   lineNumberActiveColor: "#C6C6C6",
   textColor: "#D4D4D4",
   cursorColor: "#AEAFAD",
+  handleColor: "#569CD6",
   selectionColor: "rgba(38, 79, 120, 0.6)",
   currentLineHighlight: "rgba(255, 255, 255, 0.04)",
 

@@ -58,9 +58,10 @@ export class EditorStateManager {
 
   // ── Selection ────────────────────────────────────────────────────────────
   selection: TextRange | null = null;
+  activeHandle: 'start' | 'end' | null = null;
 
   getNormalizedSelection(): TextRange | null {
-    if (!this.selection) return null;
+    if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
     const { startLine, startColumn, endLine, endColumn } = this.selection;
     if (startLine > endLine || (startLine === endLine && startColumn > endColumn)) {
       return { startLine: endLine, startColumn: endColumn, endLine: startLine, endColumn: startColumn };
@@ -473,6 +474,72 @@ export class EditorStateManager {
 
   // ── Tap-to-place-cursor ──────────────────────────────────────────────────
 
+  getCursorXFor(column: number): number {
+    return (
+      EDITOR_THEME.gutterWidth +
+      EDITOR_THEME.contentPaddingLeft +
+      column * this.charWidth -
+      this.scrollOffset.x
+    );
+  }
+
+  getHandleAt(canvasX: number, canvasY: number): 'start' | 'end' | null {
+    if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
+    
+    // Check start handle
+    const startX = this.getCursorXFor(this.selection.startColumn);
+    const startY = this.getLineY(this.selection.startLine) + EDITOR_THEME.lineHeight; // Bottom of line
+    const distStart = Math.hypot(canvasX - startX, canvasY - startY);
+    
+    // Check end handle
+    const endX = this.getCursorXFor(this.selection.endColumn);
+    const endY = this.getLineY(this.selection.endLine) + EDITOR_THEME.lineHeight;
+    const distEnd = Math.hypot(canvasX - endX, canvasY - endY);
+    
+    const HIT_RADIUS = 30; // generous touch target
+    
+    // Return whichever is closer, if within radius
+    if (distStart < HIT_RADIUS && distStart <= distEnd) return 'start';
+    if (distEnd < HIT_RADIUS) return 'end';
+    
+    return null;
+  }
+
+  handleHandleDrag(canvasX: number, canvasY: number) {
+    if (!this.selection || !this.activeHandle) return;
+    
+    const pos = this.getLineColumn(canvasX, canvasY);
+    let newSelection = { ...this.selection };
+    
+    if (this.activeHandle === 'start') {
+        newSelection.startLine = pos.line;
+        newSelection.startColumn = pos.column;
+        
+        // Enforce boundary: start cannot go beyond end
+        if (newSelection.startLine > newSelection.endLine || 
+           (newSelection.startLine === newSelection.endLine && newSelection.startColumn > newSelection.endColumn)) {
+            newSelection.startLine = newSelection.endLine;
+            newSelection.startColumn = newSelection.endColumn;
+        }
+    } else {
+        newSelection.endLine = pos.line;
+        newSelection.endColumn = pos.column;
+        
+        // Enforce boundary: end cannot go before start
+        if (newSelection.endLine < newSelection.startLine || 
+           (newSelection.endLine === newSelection.startLine && newSelection.endColumn < newSelection.startColumn)) {
+            newSelection.endLine = newSelection.startLine;
+            newSelection.endColumn = newSelection.startColumn;
+        }
+    }
+    
+    this.selection = newSelection;
+    this.setCursor(this.activeHandle === 'start' ? newSelection.startLine : newSelection.endLine, 
+                   this.activeHandle === 'start' ? newSelection.startColumn : newSelection.endColumn, true);
+    this.scrollToCursor(false);
+    this.invalidate();
+  }
+
   getLineColumn(canvasX: number, canvasY: number): { line: number; column: number } {
     if (this.charWidth === 0) return { line: 1, column: 0 };
     
@@ -504,6 +571,8 @@ export class EditorStateManager {
     this.stopMomentumScroll();
     const pos = this.getLineColumn(canvasX, canvasY);
 
+    this.selection = null;
+    this.activeHandle = null;
     this.setCursor(pos.line, pos.column);
     
     // Crucial: if they tapped in the empty void to the right, the column clamped.

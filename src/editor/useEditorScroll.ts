@@ -45,11 +45,16 @@ export function useEditorScroll(
   const { directionalLockEnabled } = useEditorPreferences();
 
   const panGesture = Gesture.Pan()
-    .onBegin(() => {
+    .onBegin((e) => {
       wasScrolling.current = stateManager.isMomentumScrolling();
       stateManager.stopMomentumScroll();
+      const handle = stateManager.getHandleAt(e.x, e.y);
+      if (handle) {
+        stateManager.activeHandle = handle;
+      }
     })
     .onStart((e) => {
+      if (stateManager.activeHandle) return;
       panStartY.current = stateManager.scrollOffset.y;
       panStartX.current = stateManager.scrollOffset.x;
       panStartTranslation.current = { x: e.translationX, y: e.translationY };
@@ -58,6 +63,10 @@ export function useEditorScroll(
       frozenY.current = 0;
     })
     .onUpdate((e) => {
+      if (stateManager.activeHandle) {
+        stateManager.handleHandleDrag(e.x, e.y);
+        return;
+      }
       const activeTranslationY = e.translationY - panStartTranslation.current.y;
       const activeTranslationX = e.translationX - panStartTranslation.current.x;
 
@@ -92,6 +101,10 @@ export function useEditorScroll(
       stateManager.invalidate();
     })
     .onEnd((e) => {
+      if (stateManager.activeHandle) {
+        stateManager.activeHandle = null;
+        return;
+      }
       const velX = scrollLock.current === 'vertical' ? 0 : e.velocityX;
       const velY = scrollLock.current === 'horizontal' ? 0 : e.velocityY;
       stateManager.startMomentumScroll(velX, velY);
