@@ -60,6 +60,7 @@ export class EditorStateManager {
   selection: TextRange | null = null;
   activeHandle: 'start' | 'end' | null = null;
   isDraggingSelection: boolean = false;
+  _initialWordSelection: TextRange | null = null;
 
   getNormalizedSelection(): TextRange | null {
     if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
@@ -591,15 +592,45 @@ export class EditorStateManager {
     this.invalidate();
   }
 
+  handleWordSelection(canvasX: number, canvasY: number) {
+    this.stopMomentumScroll();
+    const pos = this.getLineColumn(canvasX, canvasY);
+    const wordRange = this.engine.getWordRangeAtPosition(pos.line, pos.column);
+
+    if (wordRange.startLine === wordRange.endLine && wordRange.startColumn === wordRange.endColumn) {
+      this.selection = {
+        startLine: pos.line,
+        startColumn: pos.column,
+        endLine: pos.line,
+        endColumn: pos.column,
+      };
+      this.setCursor(pos.line, pos.column, true);
+    } else {
+      this.selection = { ...wordRange };
+      this.setCursor(wordRange.endLine, wordRange.endColumn, true);
+    }
+
+    this.scrollToCursor(true);
+    this.invalidate();
+  }
+
   handleSelectionStart(canvasX: number, canvasY: number) {
     this.stopMomentumScroll();
     const pos = this.getLineColumn(canvasX, canvasY);
-    this.selection = {
-      startLine: pos.line,
-      startColumn: pos.column,
-      endLine: pos.line,
-      endColumn: pos.column,
-    };
+    const wordRange = this.engine.getWordRangeAtPosition(pos.line, pos.column);
+
+    if (wordRange.startLine === wordRange.endLine && wordRange.startColumn === wordRange.endColumn) {
+      this._initialWordSelection = null;
+      this.selection = {
+        startLine: pos.line,
+        startColumn: pos.column,
+        endLine: pos.line,
+        endColumn: pos.column,
+      };
+    } else {
+      this._initialWordSelection = { ...wordRange };
+      this.selection = { ...wordRange };
+    }
     this.setCursor(pos.line, pos.column, true);
     this.scrollToCursor(true);
     this.invalidate();
@@ -609,18 +640,44 @@ export class EditorStateManager {
     if (!this.selection) return;
     const pos = this.getLineColumn(canvasX, canvasY);
     
+    let newStartLine = this.selection.startLine;
+    let newStartColumn = this.selection.startColumn;
+
+    if (this._initialWordSelection) {
+      const isBefore = pos.line < this._initialWordSelection.startLine || 
+                       (pos.line === this._initialWordSelection.startLine && pos.column < this._initialWordSelection.startColumn);
+      
+      if (isBefore) {
+        newStartLine = this._initialWordSelection.endLine;
+        newStartColumn = this._initialWordSelection.endColumn;
+      } else {
+        newStartLine = this._initialWordSelection.startLine;
+        newStartColumn = this._initialWordSelection.startColumn;
+      }
+    }
+
     // PERF: Prevent unnecessary object creation & React re-renders
-    if (this.selection.endLine === pos.line && this.selection.endColumn === pos.column) {
+    if (newStartLine === this.selection.startLine && 
+        newStartColumn === this.selection.startColumn &&
+        this.selection.endLine === pos.line && 
+        this.selection.endColumn === pos.column) {
       return;
     }
 
     this.selection = {
-      ...this.selection,
+      startLine: newStartLine,
+      startColumn: newStartColumn,
       endLine: pos.line,
       endColumn: pos.column,
     };
     this.setCursor(pos.line, pos.column, true);
     this.scrollToCursor(false);
+    this.invalidate();
+  }
+
+  handleSelectionEnd() {
+    this.isDraggingSelection = false;
+    this._initialWordSelection = null;
     this.invalidate();
   }
 

@@ -136,13 +136,26 @@ export function useEditorScroll(
       stateManager.handleSelectionUpdate(e.x, e.y);
     })
     .onEnd(() => {
-      stateManager.isDraggingSelection = false;
-      stateManager.invalidate();
+      stateManager.handleSelectionEnd();
     })
     .onFinalize(() => {
-      stateManager.isDraggingSelection = false;
-      stateManager.invalidate();
+      stateManager.handleSelectionEnd();
     })
+    .runOnJS(true);
+
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onBegin(() => {
+      wasScrolling.current = stateManager.isMomentumScrolling();
+      stateManager.stopMomentumScroll();
+    })
+    .onEnd((e) => {
+      if (!wasScrolling.current) {
+        stateManager.handleWordSelection(e.x, e.y);
+        onTap?.();
+      }
+    })
+    .maxDuration(250)
     .runOnJS(true);
 
   const tapGesture = Gesture.Tap()
@@ -160,7 +173,7 @@ export function useEditorScroll(
     .maxDuration(250)
     .runOnJS(true);
 
-  const gesture = Gesture.Exclusive(selectionPanGesture, panGesture, tapGesture);
+  const gesture = Gesture.Exclusive(selectionPanGesture, panGesture, doubleTapGesture, tapGesture);
 
   return { gesture };
 }
