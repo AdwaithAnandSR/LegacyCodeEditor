@@ -370,12 +370,16 @@ export class EditorStateManager {
 
       this.scrollBy(dx, dy);
 
-      // Stop condition: Velocity dropped below 10px/s, OR we hit a hard wall
+      // Physics: If we hit a hard wall, instantly kill the momentum in that direction
       const hitXBound = Math.abs(dx) > 0.1 && this.scrollOffset.x === oldX;
       const hitYBound = Math.abs(dy) > 0.1 && this.scrollOffset.y === oldY;
+      
+      if (hitXBound) this._momentumVelocity.x = 0;
+      if (hitYBound) this._momentumVelocity.y = 0;
+
       const velocityTooLow = Math.abs(this._momentumVelocity.x) < 10 && Math.abs(this._momentumVelocity.y) < 10;
 
-      if (velocityTooLow || (hitXBound && hitYBound)) {
+      if (velocityTooLow) {
         this.stopMomentumScroll();
 
       } else {

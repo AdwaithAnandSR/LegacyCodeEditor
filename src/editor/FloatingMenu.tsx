@@ -153,7 +153,8 @@ const styles = StyleSheet.create({
   },
   text: {
     color: '#E0E0E0',
-    fontSize: 14,
+    fontSize: EDITOR_THEME.fontSize,
+    fontFamily: EDITOR_THEME.fontFamily,
     fontWeight: '500',
   },
   divider: {
