@@ -199,6 +199,17 @@ function drawEditorToCanvas(
   const { firstLine, lastLine } = state.getVisibleRange();
   const contentAreaWidth = canvasWidth - gutterWidth - contentPaddingLeft;
 
+  // Calculate Horizontal Virtualization bounds
+  // We overscan by 20 characters to hide any pop-in from fast scrolling
+  const OVERSCAN_X = 20;
+  let firstCharIndex = 0;
+  let visibleCharCount = 0;
+  
+  if (charWidth > 0) {
+    firstCharIndex = Math.max(0, Math.floor(state.scrollOffset.x / charWidth) - OVERSCAN_X);
+    visibleCharCount = Math.ceil(contentAreaWidth / charWidth) + OVERSCAN_X * 2;
+  }
+
   // Apply Hardware Canvas Translation for vertical scrolling.
   // We do NOT translate X globally because the gutter must stay fixed on the left!
   canvas.save();
@@ -235,11 +246,49 @@ function drawEditorToCanvas(
     );
     lineNumPara.paint(canvas, 0, textY);
 
-    // -- Line text (Manual X translation)
-    const lineText = state.engine.getLine(lineNum);
-    const para = getCachedLineParagraph(lineText, fontProvider);
-    const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
-    para.paint(canvas, textX, textY);
+    // -- Line text (Horizontal Virtualization)
+    const rawLine = state.engine.getLine(lineNum);
+    
+    // Update dynamic horizontal scroll bounds (mutating during render is standard for loose boundary caches)
+    if (rawLine.length > state.maxRenderedLineLength) {
+      state.maxRenderedLineLength = rawLine.length;
+    }
+
+    // Standardize tabs to 4 spaces to guarantee mathematical monospace alignment
+    const lineText = rawLine.includes('\t') ? rawLine.replace(/\t/g, "    ") : rawLine;
+
+    if (charWidth > 0 && lineText.length > firstCharIndex) {
+      const lastCharIndex = firstCharIndex + visibleCharCount;
+      
+      let safeStart = firstCharIndex;
+      let safeEnd = lastCharIndex;
+
+      // Prevent slicing surrogate pairs (emojis) in half
+      if (safeStart > 0 && safeStart < lineText.length) {
+        const code = lineText.charCodeAt(safeStart);
+        if (code >= 0xDC00 && code <= 0xDFFF) safeStart -= 1;
+      }
+      if (safeEnd > 0 && safeEnd < lineText.length) {
+        const code = lineText.charCodeAt(safeEnd - 1);
+        if (code >= 0xD800 && code <= 0xDBFF) safeEnd += 1;
+      }
+
+      const slicedText = lineText.substring(safeStart, safeEnd);
+      
+      if (slicedText.length > 0) {
+        const para = getCachedLineParagraph(slicedText, fontProvider);
+        const charX = safeStart * charWidth;
+        const textX = gutterWidth + contentPaddingLeft + charX - state.scrollOffset.x;
+        para.paint(canvas, textX, textY);
+      }
+    } else if (charWidth === 0 && lineText.length > 0) {
+      // Fallback if charWidth hasn't loaded
+      const para = getCachedLineParagraph(lineText, fontProvider);
+      const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
+      para.paint(canvas, textX, textY);
+    }
+    // If charWidth > 0 but lineText.length <= firstCharIndex, the line is 
+    // entirely scrolled off-screen to the left! We optimally draw nothing.
   }
 
   // ── 6. Draw cursor ────────────────────────────────────────────────────

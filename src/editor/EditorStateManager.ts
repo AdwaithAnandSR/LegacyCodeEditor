@@ -327,7 +327,7 @@ export class EditorStateManager {
    */
   scrollBy(dx: number, dy: number) {
     this.scrollOffset = {
-      x: Math.max(0, this.scrollOffset.x + dx),
+      x: Math.max(0, Math.min(this.maxScrollX, this.scrollOffset.x + dx)),
       y: Math.max(0, Math.min(this.maxScrollY, this.scrollOffset.y + dy)),
     };
     this.invalidate();
@@ -335,7 +335,7 @@ export class EditorStateManager {
 
   scrollTo(y: number) {
     this.scrollOffset = {
-      x: this.scrollOffset.x,
+      x: Math.max(0, Math.min(this.maxScrollX, this.scrollOffset.x)),
       y: Math.max(0, Math.min(this.maxScrollY, y)),
     };
     this.invalidate();
@@ -401,6 +401,16 @@ export class EditorStateManager {
     return this.getLineY(this.cursorLine);
   }
 
+  maxRenderedLineLength = 0;
+
+  get maxScrollX(): number {
+    if (this.charWidth === 0 || this.viewport.width === 0) return 0;
+    const contentAreaWidth = this.viewport.width - EDITOR_THEME.gutterWidth - EDITOR_THEME.contentPaddingLeft;
+    const maxContentWidth = this.maxRenderedLineLength * this.charWidth;
+    // Allow scrolling up to the longest known line, plus a 100px comfort buffer
+    return Math.max(0, maxContentWidth - contentAreaWidth + 100);
+  }
+
   // ── Tap-to-place-cursor ──────────────────────────────────────────────────
 
   /**
@@ -429,6 +439,10 @@ export class EditorStateManager {
     col = Math.min(col, lineLen);
 
     this.setCursor(line, col);
+    
+    // Crucial: if they tapped in the empty void to the right, the column clamped.
+    // We MUST snap the viewport back to the actual text so they don't get lost!
+    this.scrollToCursor(true);
     this.invalidate();
   }
 

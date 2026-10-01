@@ -86,7 +86,7 @@ export function useEditorScroll(
         : panStartX.current - activeTranslationX;
 
       stateManager.scrollOffset = {
-        x: Math.max(0, newX),
+        x: Math.max(0, Math.min(stateManager.maxScrollX, newX)),
         y: Math.max(0, Math.min(stateManager.maxScrollY, newY)),
       };
       stateManager.invalidate();
