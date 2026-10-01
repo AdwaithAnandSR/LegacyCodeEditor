@@ -498,12 +498,12 @@ export class EditorStateManager {
     
     // Check start handle
     const startX = this.getCursorXFor(this.selection.startColumn);
-    const startY = this.getLineY(this.selection.startLine) + EDITOR_THEME.lineHeight + 10; // Center of enlarged circle
+    const startY = this.getLineY(this.selection.startLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 10; // Center of enlarged circle
     const distStart = Math.hypot(canvasX - startX, canvasY - startY);
     
     // Check end handle
     const endX = this.getCursorXFor(this.selection.endColumn);
-    const endY = this.getLineY(this.selection.endLine) + EDITOR_THEME.lineHeight + 10;
+    const endY = this.getLineY(this.selection.endLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 10;
     const distEnd = Math.hypot(canvasX - endX, canvasY - endY);
     
     const HIT_RADIUS = 45; // very generous touch target
