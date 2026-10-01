@@ -371,13 +371,13 @@ export class EditorStateManager {
   }
 
   /**
-   * Get the Y position (in canvas coordinates) for a 1-based line number.
+   * Get the absolute Y position (in document coordinates) for a 1-based line number.
+   * Does NOT subtract the scroll offset.
    */
   getLineY(line: number): number {
     return (
       EDITOR_THEME.contentPaddingTop +
-      (line - 1) * EDITOR_THEME.lineHeight -
-      this.scrollOffset.y
+      (line - 1) * EDITOR_THEME.lineHeight
     );
   }
 

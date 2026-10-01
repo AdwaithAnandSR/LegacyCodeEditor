@@ -188,44 +188,46 @@ function drawEditorToCanvas(
   // ── 1. Clear background ────────────────────────────────────────────────
   canvas.drawPaint(PAINTS.background);
 
-  // ── 2. Compute visible range ───────────────────────────────────────────
+  // ── 2. Draw fixed gutter background & border ───────────────────────────
+  canvas.drawRect(
+    Skia.XYWHRect(0, 0, gutterWidth, canvasHeight),
+    PAINTS.gutterBg,
+  );
+  canvas.drawLine(gutterWidth, 0, gutterWidth, canvasHeight, PAINTS.gutterBorder);
+
+  // ── 3. Compute visible range for mathematical virtualization ───────────
   const { firstLine, lastLine } = state.getVisibleRange();
   const contentAreaWidth = canvasWidth - gutterWidth - contentPaddingLeft;
 
-  // ── 3. Draw current line highlight ─────────────────────────────────────
+  // Apply Hardware Canvas Translation for vertical scrolling.
+  // We do NOT translate X globally because the gutter must stay fixed on the left!
+  canvas.save();
+  canvas.translate(0, -state.scrollOffset.y);
+
+  // ── 4. Draw current line highlight ─────────────────────────────────────
   const cursorLineY = state.getLineY(state.cursorLine);
-  if (cursorLineY >= -lineHeight && cursorLineY < canvasHeight) {
+  // Check against translated viewport bounds
+  if (
+    cursorLineY + lineHeight >= state.scrollOffset.y && 
+    cursorLineY <= state.scrollOffset.y + canvasHeight
+  ) {
     canvas.drawRect(
       Skia.XYWHRect(
         gutterWidth,
         cursorLineY,
-        contentAreaWidth + contentPaddingLeft,
+        contentAreaWidth + contentPaddingLeft + state.scrollOffset.x,
         lineHeight,
       ),
       PAINTS.currentLineHighlight,
     );
   }
 
-  // ── 4. Draw gutter background ──────────────────────────────────────────
-  canvas.drawRect(
-    Skia.XYWHRect(0, 0, gutterWidth, canvasHeight),
-    PAINTS.gutterBg,
-  );
-
-  // ── 5. Draw gutter border ──────────────────────────────────────────────
-  canvas.drawLine(gutterWidth, 0, gutterWidth, canvasHeight, PAINTS.gutterBorder);
-
-  // ── 6. Draw visible lines ──────────────────────────────────────────────
+  // ── 5. Draw visible lines ──────────────────────────────────────────────
   for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
     const y = state.getLineY(lineNum);
-
-    // Skip lines fully outside viewport
-    if (y + lineHeight < 0 || y > canvasHeight) continue;
-
-    // Vertical center offset for text within line
     const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
 
-    // -- Line number
+    // -- Line number (Draws at fixed X=0, but translated Y)
     const lineNumPara = getCachedLineNumberParagraph(
       lineNum,
       lineNum === state.cursorLine,
@@ -233,25 +235,34 @@ function drawEditorToCanvas(
     );
     lineNumPara.paint(canvas, 0, textY);
 
-    // -- Line text
+    // -- Line text (Manual X translation)
     const lineText = state.engine.getLine(lineNum);
     const para = getCachedLineParagraph(lineText, fontProvider);
     const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
     para.paint(canvas, textX, textY);
   }
 
-  // ── 7. Draw cursor ────────────────────────────────────────────────────
+  // ── 6. Draw cursor ────────────────────────────────────────────────────
   if (state.cursorVisible) {
+    // getCursorX() subtracts scrollOffset.x, making it a screen coordinate.
+    // getCursorY() calls getLineY(), making it an absolute document coordinate.
+    // This perfectly matches our hybrid translated canvas.
     const cx = state.getCursorX();
     const cy = state.getCursorY();
 
-    if (cy >= -lineHeight && cy < canvasHeight && cx >= gutterWidth) {
+    if (
+      cy + lineHeight >= state.scrollOffset.y && 
+      cy <= state.scrollOffset.y + canvasHeight && 
+      cx >= gutterWidth
+    ) {
       canvas.drawRect(
         Skia.XYWHRect(cx, cy, cursorWidth, lineHeight),
         PAINTS.cursor,
       );
     }
   }
+
+  canvas.restore();
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
