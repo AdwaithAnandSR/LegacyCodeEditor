@@ -64,6 +64,7 @@ export class EditorStateManager {
   _initialWordSelection: TextRange | null = null;
   floatingMenuVisible: boolean = true;
   floatingMenuBounds: { x: number, y: number, width: number, height: number } | null = null;
+  clearOSBuffer?: () => void;
 
   getNormalizedSelection(): TextRange | null {
     if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
@@ -110,7 +111,7 @@ export class EditorStateManager {
   // ── Public API ───────────────────────────────────────────────────────────
 
   get floatingMenuSnapshot() {
-    return `${this.selection?.startLine},${this.selection?.startColumn},${this.selection?.endLine},${this.selection?.endColumn},${this.isDraggingSelection},${this.isFingerScrolling},${this.isMomentumScrolling()},${this.floatingMenuVisible},${this.scrollOffset.y}`;
+    return `${this.selection?.startLine},${this.selection?.startColumn},${this.selection?.endLine},${this.selection?.endColumn},${this.isDraggingSelection},${this.isFingerScrolling},${this.isMomentumScrolling()},${this.floatingMenuVisible}`;
   }
 
   /**
@@ -124,10 +125,17 @@ export class EditorStateManager {
     };
   }
 
-  /** Notify the canvas that it should repaint. */
+  private _isInvalidationPending = false;
+
+  /** Notify the canvas that it should repaint (batched per frame). */
   invalidate() {
-    this._invalidate?.();
-    this.notifyUI();
+    if (this._isInvalidationPending) return;
+    this._isInvalidationPending = true;
+    requestAnimationFrame(() => {
+      this._isInvalidationPending = false;
+      this._invalidate?.();
+      this.notifyUI();
+    });
   }
 
   // ── Content ──────────────────────────────────────────────────────────────

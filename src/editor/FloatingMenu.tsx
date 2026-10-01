@@ -36,6 +36,7 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
     stateManager.engine.deleteText(normSel);
     stateManager.setCursor(normSel.startLine, normSel.startColumn);
     stateManager.selection = null;
+    stateManager.clearOSBuffer?.();
     stateManager.invalidate();
   };
 
@@ -57,6 +58,7 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
     stateManager.setCursor(newPos.line, newPos.column);
     stateManager.selection = null;
     stateManager.floatingMenuVisible = false; // Hide menu after pasting
+    stateManager.clearOSBuffer?.();
     stateManager.invalidate();
   };
 

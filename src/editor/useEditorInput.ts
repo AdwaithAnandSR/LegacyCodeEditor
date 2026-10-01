@@ -52,6 +52,9 @@ export function useEditorInput(stateManager: EditorStateManager) {
     inputRef.current?.setNativeProps({ text: sentinelRef.current });
   }, []);
 
+  // Expose to state manager so external actions (like pasting from a menu) can sync the OS buffer
+  stateManager.clearOSBuffer = clearInput;
+
   const handleTextChange = useCallback(
     (text: string) => {
       if (text === "") {
