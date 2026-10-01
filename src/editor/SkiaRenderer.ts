@@ -242,9 +242,6 @@ function drawEditorToCanvas(
   const { firstLine, lastLine } = state.getVisibleRange();
   
   const syntaxTokens = state.engine.getSyntaxTokens(firstLine, lastLine);
-
-
-    console.log(syntaxTokens)
     
   const tokensByLine: Record<number, SyntaxToken[]> = {};
   for (const token of syntaxTokens) {
