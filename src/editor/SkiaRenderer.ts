@@ -77,6 +77,13 @@ const PAINTS = {
   handle: makePaint(EDITOR_THEME.handleColor),
 };
 
+// A reusable teardrop shape pointing up, commonly used in mobile OS cursors.
+// Tip is at (0, -15), arc centers at (0, 0) with radius 10.
+const WATER_DROP_PATH = Skia.Path.MakeFromSVGString(
+  "M 0 -15 L 7.45 -6.66 A 10 10 0 1 1 -7.45 -6.66 Z"
+);
+if (!WATER_DROP_PATH) throw new Error("Failed to parse WATER_DROP_PATH");
+
 // ── Renderer Resources ──────────────────────────────────────────────────────
 
 /**
@@ -471,7 +478,13 @@ function drawEditorToCanvas(
     const drawHandle = (x: number, y: number) => {
         if (y + lineHeight >= state.scrollOffset.y && y <= state.scrollOffset.y + canvasHeight && x >= gutterWidth) {
             canvas.drawRect(Skia.XYWHRect(x, y, cursorWidth, lineHeight), PAINTS.handle);
-            canvas.drawCircle(x + cursorWidth / 2, y + lineHeight + 10, 10, PAINTS.handle);
+            
+            // Draw the water drop shape at the bottom of the cursor line
+            canvas.save();
+            // Translate so (0,0) is at the center of the teardrop bulb
+            canvas.translate(x + cursorWidth / 2, y + lineHeight + 15);
+            canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
+            canvas.restore();
         }
     };
     drawHandle(startX, startY);

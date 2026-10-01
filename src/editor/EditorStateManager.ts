@@ -541,12 +541,12 @@ export class EditorStateManager {
     
     // Check start handle
     const startX = this.getCursorXFor(this.selection.startColumn);
-    const startY = this.getLineY(this.selection.startLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 10; // Center of enlarged circle
+    const startY = this.getLineY(this.selection.startLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 15; // Center of teardrop
     const distStart = Math.hypot(canvasX - startX, canvasY - startY);
     
     // Check end handle
     const endX = this.getCursorXFor(this.selection.endColumn);
-    const endY = this.getLineY(this.selection.endLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 10;
+    const endY = this.getLineY(this.selection.endLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 15;
     const distEnd = Math.hypot(canvasX - endX, canvasY - endY);
     
     const HIT_RADIUS = 45; // very generous touch target
@@ -562,7 +562,7 @@ export class EditorStateManager {
     if (!this.selection || !this.activeHandle) return;
     
     // Offset canvasY by the circle's vertical distance so dragging the handle doesn't jump down a line
-    const pos = this.getLineColumn(canvasX, canvasY - EDITOR_THEME.lineHeight - 10);
+    const pos = this.getLineColumn(canvasX, canvasY - EDITOR_THEME.lineHeight - 15);
     
     // PERF: Skip object creation if position hasn't logically changed
     if (this.activeHandle === 'start') {
