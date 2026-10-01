@@ -592,21 +592,19 @@ export class EditorStateManager {
     return true;
   }
 
+  isPointInFloatingMenu(canvasX: number, canvasY: number): boolean {
+    if (!this.selection || !this.floatingMenuVisible || !this.floatingMenuBounds) return false;
+    const { x, y, width, height } = this.floatingMenuBounds;
+    return canvasX >= x - 10 && canvasX <= x + width + 10 && 
+           canvasY >= y - 10 && canvasY <= y + height + 10;
+  }
+
   /**
    * Given a tap in canvas coordinates, move the cursor to the
    * nearest line/column.
    */
   handleTap(canvasX: number, canvasY: number) {
     this.stopMomentumScroll();
-    
-    // Check if clicked inside the floating menu
-    if (this.floatingMenuVisible && this.floatingMenuBounds) {
-      const { x, y, width, height } = this.floatingMenuBounds;
-      if (canvasX >= x - 10 && canvasX <= x + width + 10 && 
-          canvasY >= y - 10 && canvasY <= y + height + 10) {
-        return; // Ignore the tap in the editor space, let the menu's buttons handle it
-      }
-    }
 
     const handle = this.getHandleAt(canvasX, canvasY);
     if (handle) {

@@ -143,13 +143,17 @@ export function useEditorScroll(
     })
     .runOnJS(true);
 
+  const startedInMenu = useRef(false);
+
   const doubleTapGesture = Gesture.Tap()
     .numberOfTaps(2)
-    .onBegin(() => {
+    .onBegin((e) => {
+      startedInMenu.current = stateManager.isPointInFloatingMenu(e.x, e.y);
       wasScrolling.current = stateManager.isMomentumScrolling();
       stateManager.stopMomentumScroll();
     })
     .onEnd((e) => {
+      if (startedInMenu.current) return;
       if (!wasScrolling.current) {
         stateManager.handleWordSelection(e.x, e.y);
         onTap?.();
@@ -159,11 +163,13 @@ export function useEditorScroll(
     .runOnJS(true);
 
   const tapGesture = Gesture.Tap()
-    .onBegin(() => {
+    .onBegin((e) => {
+      startedInMenu.current = stateManager.isPointInFloatingMenu(e.x, e.y);
       wasScrolling.current = stateManager.isMomentumScrolling();
       stateManager.stopMomentumScroll();
     })
     .onEnd((e) => {
+      if (startedInMenu.current) return;
       // If the scrollview was moving, this tap just catches it. Don't move the cursor.
       if (!wasScrolling.current) {
         stateManager.handleTap(e.x, e.y);
