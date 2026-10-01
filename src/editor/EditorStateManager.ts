@@ -60,6 +60,7 @@ export class EditorStateManager {
   selection: TextRange | null = null;
   activeHandle: 'start' | 'end' | null = null;
   isDraggingSelection: boolean = false;
+  isFingerScrolling: boolean = false;
   _initialWordSelection: TextRange | null = null;
   floatingMenuVisible: boolean = true;
   floatingMenuBounds: { x: number, y: number, width: number, height: number } | null = null;
@@ -109,7 +110,7 @@ export class EditorStateManager {
   // ── Public API ───────────────────────────────────────────────────────────
 
   get floatingMenuSnapshot() {
-    return `${this.selection?.startLine},${this.selection?.startColumn},${this.selection?.endLine},${this.selection?.endColumn},${this.isDraggingSelection},${this.floatingMenuVisible},${this.scrollOffset.y}`;
+    return `${this.selection?.startLine},${this.selection?.startColumn},${this.selection?.endLine},${this.selection?.endColumn},${this.isDraggingSelection},${this.isFingerScrolling},${this.isMomentumScrolling()},${this.floatingMenuVisible},${this.scrollOffset.y}`;
   }
 
   /**
@@ -389,6 +390,7 @@ export class EditorStateManager {
     if (this._momentumAnimId !== null) {
       cancelAnimationFrame(this._momentumAnimId);
       this._momentumAnimId = null;
+      this.invalidate(); // Re-render UI (e.g. show floating menu)
     }
   }
 

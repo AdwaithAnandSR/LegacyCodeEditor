@@ -12,7 +12,7 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
   const sizeRef = useRef({ width: 200, height: 40 });
   const selection = stateManager.selection;
   
-  if (!selection || stateManager.isDraggingSelection || !stateManager.floatingMenuVisible) {
+  if (!selection || stateManager.isDraggingSelection || !stateManager.floatingMenuVisible || stateManager.isFingerScrolling || stateManager.isMomentumScrolling()) {
     stateManager.floatingMenuBounds = null;
     return null;
   }

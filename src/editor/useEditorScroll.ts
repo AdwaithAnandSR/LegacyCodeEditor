@@ -58,6 +58,7 @@ export function useEditorScroll(
         stateManager.isDraggingSelection = true;
         return;
       }
+      stateManager.isFingerScrolling = true;
       panStartY.current = stateManager.scrollOffset.y;
       panStartX.current = stateManager.scrollOffset.x;
       panStartTranslation.current = { x: e.translationX, y: e.translationY };
@@ -110,6 +111,7 @@ export function useEditorScroll(
         stateManager.invalidate();
         return;
       }
+      stateManager.isFingerScrolling = false;
       const velX = scrollLock.current === 'vertical' ? 0 : e.velocityX;
       const velY = scrollLock.current === 'horizontal' ? 0 : e.velocityY;
       stateManager.startMomentumScroll(velX, velY);
