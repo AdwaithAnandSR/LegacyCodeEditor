@@ -537,8 +537,9 @@ export class EditorStateManager {
   }
 
   getHandleAt(canvasX: number, canvasY: number): 'start' | 'end' | null {
-    if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
+    if (!this.selection) return null;
     
+    const isZeroWidth = this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn;
     // Check start handle
     const startX = this.getCursorXFor(this.selection.startColumn);
     const startY = this.getLineY(this.selection.startLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 15; // Center of teardrop
@@ -564,8 +565,10 @@ export class EditorStateManager {
     // Offset canvasY by the circle's vertical distance so dragging the handle doesn't jump down a line
     const pos = this.getLineColumn(canvasX, canvasY - EDITOR_THEME.lineHeight - 15);
     
+    const isZeroWidth = this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn;
+
     // PERF: Skip object creation if position hasn't logically changed
-    if (this.activeHandle === 'start') {
+    if (this.activeHandle === 'start' || isZeroWidth) {
         if (this.selection.startLine === pos.line && this.selection.startColumn === pos.column) return;
     } else {
         if (this.selection.endLine === pos.line && this.selection.endColumn === pos.column) return;
@@ -573,7 +576,12 @@ export class EditorStateManager {
 
     let newSelection = { ...this.selection };
     
-    if (this.activeHandle === 'start') {
+    if (isZeroWidth) {
+        newSelection.startLine = pos.line;
+        newSelection.startColumn = pos.column;
+        newSelection.endLine = pos.line;
+        newSelection.endColumn = pos.column;
+    } else if (this.activeHandle === 'start') {
         newSelection.startLine = pos.line;
         newSelection.startColumn = pos.column;
     } else {
@@ -646,6 +654,15 @@ export class EditorStateManager {
 
     if (this.isPositionInSelection(pos.line, pos.column)) {
       this.floatingMenuVisible = !this.floatingMenuVisible;
+      this.invalidate();
+      return;
+    }
+
+    // If they tapped exactly on the blinking cursor, convert it to a 0-width selection
+    // so the teardrop appears and stops blinking. Do not show menu yet.
+    if (!this.selection && pos.line === this.cursorLine && pos.column === this.cursorColumn) {
+      this.selection = { startLine: pos.line, startColumn: pos.column, endLine: pos.line, endColumn: pos.column };
+      this.floatingMenuVisible = false; // user must tap drop again to show menu
       this.invalidate();
       return;
     }

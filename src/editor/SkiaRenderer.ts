@@ -468,9 +468,9 @@ function drawEditorToCanvas(
         PAINTS.cursor,
       );
       
-      // If the floating menu is active (e.g. they long pressed empty space to paste),
-      // draw the teardrop handle underneath the cursor so it looks like a selected insertion point.
-      if (state.floatingMenuVisible && state.selection) {
+      // If there is an active 0-width selection (e.g. they tapped the cursor or long pressed),
+      // draw the teardrop handle underneath so they can drag it or tap it for the menu.
+      if (state.selection) {
         canvas.save();
         canvas.translate(cx + cursorWidth / 2, cy + lineHeight + 15);
         canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
