@@ -891,6 +891,7 @@ public:
             if (computeHash(content.value()) == savedContentHash_) {
                 modified_ = false;
             }
+            if (syntaxEngine_) syntaxEngine_->parseFull();
         }
     }
 
