@@ -1,6 +1,7 @@
 import { useSyncExternalStore, useRef } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import * as Clipboard from 'expo-clipboard';
 import type { EditorStateManager } from './EditorStateManager';
 import { EDITOR_THEME } from './theme';
@@ -97,7 +98,9 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
   };
 
   return (
-    <View 
+    <Animated.View 
+      entering={FadeIn.duration(150)}
+      exiting={FadeOut.duration(100)}
       style={[styles.container, { top: y, left: x }]}
       onLayout={(e) => {
         sizeRef.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
@@ -128,7 +131,7 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
       >
         <Text style={styles.text}>Select All</Text>
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
