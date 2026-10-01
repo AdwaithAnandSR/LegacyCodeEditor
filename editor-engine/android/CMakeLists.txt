@@ -9,6 +9,10 @@ set (CMAKE_CXX_STANDARD 20)
 add_library(${PACKAGE_NAME} SHARED
         src/main/cpp/cpp-adapter.cpp
         ../cpp/HybridEditorEngine.cpp
+        ../cpp/SyntaxEngine.cpp
+        ../cpp/tree-sitter/src/lib.c
+        ../cpp/parsers/javascript/parser.c
+        ../cpp/parsers/javascript/scanner.c
 )
 
 # Add Nitrogen specs :)
@@ -18,6 +22,7 @@ include(${CMAKE_SOURCE_DIR}/../nitrogen/generated/android/NitroEditorEngine+auto
 include_directories(
         "src/main/cpp"
         "../cpp"
+        "../cpp/tree-sitter/include"
 )
 
 find_library(LOG_LIB log)

@@ -20,7 +20,19 @@ Pod::Spec.new do |s|
     "ios/**/*.{m,mm}",
     # Implementation (C++ objects)
     "cpp/**/*.{hpp,cpp}",
+    # Tree-sitter core
+    "cpp/tree-sitter/src/lib.c",
+    "cpp/tree-sitter/src/**/*.h",
+    "cpp/tree-sitter/include/**/*.h",
+    # Tree-sitter parsers
+    "cpp/parsers/**/*.c",
+    "cpp/parsers/**/*.h",
   ]
+
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '"${PODS_TARGET_SRCROOT}/cpp/tree-sitter/include"',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
+  }
 
   load 'nitrogen/generated/ios/NitroEditorEngine+autolinking.rb'
   add_nitrogen_files(s)

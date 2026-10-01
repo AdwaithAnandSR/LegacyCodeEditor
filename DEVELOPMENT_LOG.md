@@ -111,21 +111,26 @@ Drawing thousands of lines to a Skia canvas, even if off-screen, wastes GPU cycl
 - **Horizontal Auto-scrolling:** The viewport automatically pans horizontally to keep the cursor visible if the user types past the right edge.
 - **Scroll Beyond Last Line:** Allows scrolling the document up until the last line is in the middle of the screen, providing comfortable space at the bottom.
 
----
+## 11. Text Selection & Clipboard (UX)
 
-## Current Architecture State
+**What was implemented:**
+Added long-press-and-drag gesture to select text, rendering visual selection bounds, and a custom native-feeling floating menu for Cut, Copy, and Paste operations.
 
-The editor currently operates as a high-performance hybrid system consisting of three isolated layers:
+**Important architectural decisions:**
+- **Gesture Priority:** A new pan gesture was composed using `Gesture.Exclusive()` with the scrolling gesture. A long press (300ms) overrides the scroll, dropping the user into a text selection mode seamlessly.
+- **Selection Rendering:** The Skia pipeline calculates character boundary boxes based on the active `TextRange` and draws highlight rectangles behind the text paragraphs.
+- **Overlay State Isolation:** A standard React component (`FloatingMenu.tsx`) was added for the copy/paste popup. To prevent the popup's state from triggering re-renders in the Skia canvas, it subscribes to the imperative `EditorStateManager` using `useSyncExternalStore`. This ensures only the menu updates its position and visibility when the selection changes.
 
-1. **The Native Layer (C++ / Nitro):** Owns the source of truth for the document text using a Piece Table. It processes all insertions, deletions, search operations, and undo/redo stacks synchronously with zero JS overhead.
-2. **The Imperative State Layer (JS):** `EditorStateManager` acts as the orchestrator. It manages the viewport, scroll physics, cursor coordinates, and coordinates interactions between the user's fingers/keyboard and the native C++ engine.
-3. **The Presentation Layer (Skia GPU):** `SkiaRenderer` is a pure function that takes the `EditorStateManager` and paints precisely what is visible onto an `SkPicture`. This completely bypasses React's reconciliation cycle, resulting in locked 120fps scrolling and typing regardless of document size.
+## 12. High-Performance Syntax Highlighting (Tree-sitter)
 
-**What has been implemented so far:**
-- Full C++ Piece Table engine with Undo/Redo.
-- 120fps GPU-accelerated text rendering with Skia.
-- Vertical and Horizontal virtualization.
-- Custom momentum scrolling physics and directional locking.
-- Flawless keyboard text input using the Alternating-Sentinel algorithm.
-- Dynamic auto-scrolling and Typewriter mode.
-- Mono font support (`SpaceMono`).
+**What was implemented:**
+Integrated the `tree-sitter` C library directly into the C++ Nitro module to generate AST (Abstract Syntax Tree) tokens synchronously on the native side.
+
+**Why it was needed:**
+Parsing a full code document for syntax highlighting in JavaScript or using regex is too slow for 120fps typing on mobile. Tree-sitter allows for incremental AST updates natively.
+
+**Important architectural decisions:**
+- **Zero-Copy Parser Bridge:** The standard Tree-sitter `TSInput` callback was hooked directly to the underlying C++ Piece Table. When Tree-sitter requests text, a `getChunkAtOffset` method yields a direct pointer (`const char*`) to the memory buffer inside the Piece Table. No strings are duplicated or allocated during parsing.
+- **Incremental AST Updates:** Hooked into the C++ `insertText`, `deleteText`, and `replaceText` paths. Before mutating the Piece Table, the engine computes a `TSInputEdit` bounds shift, applies `ts_tree_edit` to the AST, and then quickly parses only the delta.
+- **Bidirectional Virtualization:** To avoid passing millions of AST tokens to the UI, the C++ query layer (`ts_query_cursor_set_point_range`) uses the viewport bounds to return tokens *only* for the currently visible lines. 
+- **JS Clipping Math Removal:** Multi-line AST tokens (e.g., block comments) are automatically sliced into per-line individual tokens inside C++. This completely frees the JS/Skia rendering pipeline from having to calculate line-breaks for highlighted regions, keeping the render loop extremely simple.

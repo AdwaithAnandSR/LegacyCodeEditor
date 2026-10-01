@@ -1,6 +1,8 @@
 #pragma once
 
 #include "HybridEditorEngineSpec.hpp"
+#include "SyntaxEngine.hpp"
+#include <memory>
 #include <string>
 #include <vector>
 #include <stack>
@@ -130,6 +132,19 @@ public:
             result.append(buf, piece.start, piece.length);
         }
         return result;
+    }
+
+    std::pair<const char*, uint32_t> getChunkAtOffset(size_t offset) const {
+        size_t pos = 0;
+        for (const auto& piece : pieces_) {
+            if (offset < pos + piece.length) {
+                const std::string& buf = (piece.buffer == BufferType::ORIGINAL)
+                                         ? originalBuffer_ : addBuffer_;
+                return {buf.data() + piece.start + (offset - pos), static_cast<uint32_t>(piece.length - (offset - pos))};
+            }
+            pos += piece.length;
+        }
+        return {nullptr, 0};
     }
 
     size_t length() const {
@@ -370,6 +385,7 @@ public:
 class HybridEditorEngine : public HybridEditorEngineSpec {
 private:
     PieceTable pieceTable_;
+    std::unique_ptr<SyntaxEngine> syntaxEngine_;
     UndoManager undoManager_;
 
     // Editor settings
@@ -489,7 +505,10 @@ private:
     }
 
 public:
-    HybridEditorEngine() : HybridObject(TAG) {}
+    HybridEditorEngine() : HybridObject(TAG) {
+        syntaxEngine_ = std::make_unique<SyntaxEngine>(&pieceTable_);
+        syntaxEngine_->parseFull();
+    }
 
     // ─── Properties (readonly) ──────────────────────────────────────────
 
@@ -538,6 +557,7 @@ public:
         undoManager_.clear();
         modified_ = false;
         savedContentHash_ = computeHash(content);
+        if (syntaxEngine_) syntaxEngine_->parseFull();
     }
 
     std::string getContent() override {
@@ -563,8 +583,12 @@ public:
     CursorPosition insertText(double line, double column, const std::string& text) override {
         recordUndo();
         size_t offset = toOffset(line, column);
+        CursorPosition startPos = toPosition(offset);
         pieceTable_.insert(offset, text);
-        return toPosition(offset + text.size());
+        size_t newOffset = offset + text.size();
+        CursorPosition newPos = toPosition(newOffset);
+        if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
+        return newPos;
     }
 
     void deleteText(const TextRange& range) override {
@@ -574,20 +598,33 @@ public:
         if (endOff > startOff) {
             pieceTable_.remove(startOff, endOff - startOff);
         }
+        CursorPosition startPos = toPosition(startOff);
+        CursorPosition oldEndPos = toPosition(endOff);
+        CursorPosition newEndPos = toPosition(startOff);
+        if (syntaxEngine_) syntaxEngine_->applyEditAndParse(startOff, endOff, startOff, startPos, oldEndPos, newEndPos);
     }
 
     CursorPosition replaceText(const TextRange& range, const std::string& newText) override {
         recordUndo();
         size_t startOff = toOffset(range.startLine, range.startColumn);
         size_t endOff = toOffset(range.endLine, range.endColumn);
+        CursorPosition startPos = toPosition(startOff);
+        CursorPosition oldEndPos = toPosition(endOff);
+
         if (endOff > startOff) {
             pieceTable_.remove(startOff, endOff - startOff);
         }
         pieceTable_.insert(startOff, newText);
-        return toPosition(startOff + newText.size());
+
+        size_t newOffset = startOff + newText.size();
+        CursorPosition newPos = toPosition(newOffset);
+        if (syntaxEngine_) syntaxEngine_->applyEditAndParse(startOff, endOff, newOffset, startPos, oldEndPos, newPos);
+        
+        return newPos;
     }
 
     void applyEdits(const std::vector<EditOperation>& edits) override {
+        bool needsParse = !edits.empty();
         recordUndo();
 
         // Sort edits in reverse order so earlier edits don't shift later offsets
@@ -607,6 +644,7 @@ public:
                 pieceTable_.insert(startOff, edit.text);
             }
         }
+        if (needsParse && syntaxEngine_) syntaxEngine_->parseFull();
     }
 
     // ─── Line Operations ────────────────────────────────────────────────
@@ -862,6 +900,7 @@ public:
             pieceTable_.loadContent(content.value());
             // Check if we're back to saved state
             modified_ = (computeHash(content.value()) != savedContentHash_);
+            if (syntaxEngine_) syntaxEngine_->parseFull();
         }
     }
 
@@ -1030,6 +1069,11 @@ public:
         size_t col = static_cast<size_t>(column);
         std::string lineText = pieceTable_.getLine(l - 1);
         return col <= lineText.size();
+    }
+
+    std::vector<SyntaxToken> getSyntaxTokens(double startLine, double endLine) override {
+        if (!syntaxEngine_) return {};
+        return syntaxEngine_->getSyntaxTokens(static_cast<int>(startLine), static_cast<int>(endLine));
     }
 
     std::string getContentHash() override {

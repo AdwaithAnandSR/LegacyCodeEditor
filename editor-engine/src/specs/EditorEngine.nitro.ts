@@ -46,6 +46,16 @@ export interface LineInfo {
 }
 
 /**
+ * A token representing a parsed AST syntax node for highlighting.
+ */
+export interface SyntaxToken {
+  line: number;
+  startColumn: number;
+  endColumn: number;
+  tokenType: string;
+}
+
+/**
  * A single edit operation (replace text within a range).
  */
 export interface EditOperation {
@@ -217,6 +227,11 @@ export interface EditorEngine
     line: number,
     column: number
   ): CursorPosition | undefined;
+
+  // ─── Syntax Highlighting ──────────────────────────────────────────────────
+
+  /** Get the parsed syntax tokens for the given line range (1-based, inclusive). */
+  getSyntaxTokens(startLine: number, endLine: number): SyntaxToken[];
 
   // ─── Utilities ────────────────────────────────────────────────────────────
 

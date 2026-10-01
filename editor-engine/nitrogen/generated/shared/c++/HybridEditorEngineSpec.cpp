@@ -53,6 +53,7 @@ namespace margelo::nitro::editorengine {
       prototype.registerHybridMethod("indentLines", &HybridEditorEngineSpec::indentLines);
       prototype.registerHybridMethod("outdentLines", &HybridEditorEngineSpec::outdentLines);
       prototype.registerHybridMethod("findMatchingBracket", &HybridEditorEngineSpec::findMatchingBracket);
+      prototype.registerHybridMethod("getSyntaxTokens", &HybridEditorEngineSpec::getSyntaxTokens);
       prototype.registerHybridMethod("clampPosition", &HybridEditorEngineSpec::clampPosition);
       prototype.registerHybridMethod("isPositionValid", &HybridEditorEngineSpec::isPositionValid);
       prototype.registerHybridMethod("getContentHash", &HybridEditorEngineSpec::getContentHash);

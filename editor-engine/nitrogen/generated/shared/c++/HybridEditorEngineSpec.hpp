@@ -29,6 +29,8 @@ namespace margelo::nitro::editorengine { struct LineInfo; }
 namespace margelo::nitro::editorengine { struct SearchResult; }
 // Forward declaration of `UndoRedoState` to properly resolve imports.
 namespace margelo::nitro::editorengine { struct UndoRedoState; }
+// Forward declaration of `SyntaxToken` to properly resolve imports.
+namespace margelo::nitro::editorengine { struct SyntaxToken; }
 
 #include "LineEnding.hpp"
 #include <string>
@@ -41,6 +43,7 @@ namespace margelo::nitro::editorengine { struct UndoRedoState; }
 #include "SearchResult.hpp"
 #include "UndoRedoState.hpp"
 #include <optional>
+#include "SyntaxToken.hpp"
 
 namespace margelo::nitro::editorengine {
 
@@ -111,6 +114,7 @@ namespace margelo::nitro::editorengine {
       virtual void indentLines(double startLine, double endLine) = 0;
       virtual void outdentLines(double startLine, double endLine) = 0;
       virtual std::optional<CursorPosition> findMatchingBracket(double line, double column) = 0;
+      virtual std::vector<SyntaxToken> getSyntaxTokens(double startLine, double endLine) = 0;
       virtual CursorPosition clampPosition(double line, double column) = 0;
       virtual bool isPositionValid(double line, double column) = 0;
       virtual std::string getContentHash() = 0;
