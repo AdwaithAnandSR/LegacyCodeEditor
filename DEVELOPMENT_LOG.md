@@ -134,3 +134,15 @@ Parsing a full code document for syntax highlighting in JavaScript or using rege
 - **Incremental AST Updates:** Hooked into the C++ `insertText`, `deleteText`, and `replaceText` paths. Before mutating the Piece Table, the engine computes a `TSInputEdit` bounds shift, applies `ts_tree_edit` to the AST, and then quickly parses only the delta.
 - **Bidirectional Virtualization:** To avoid passing millions of AST tokens to the UI, the C++ query layer (`ts_query_cursor_set_point_range`) uses the viewport bounds to return tokens *only* for the currently visible lines. 
 - **JS Clipping Math Removal:** Multi-line AST tokens (e.g., block comments) are automatically sliced into per-line individual tokens inside C++. This completely frees the JS/Skia rendering pipeline from having to calculate line-breaks for highlighted regions, keeping the render loop extremely simple.
+
+## 13. Native Cursor Interactions and Touch Physics
+
+**What was implemented:**
+Overhauled the touch pipeline and gesture handlers to perfectly replicate native iOS/Android cursor handling (interactive single-cursor teardrops, zero-latency taps, overlapping selection handles, and automatic context menu dismissal).
+
+**Important architectural decisions:**
+- **Zero-Latency Taps:** Eliminated the artificial 250ms tap delay caused by React Native Gesture Handler's `Gesture.Exclusive`. Single and double taps were merged into a single gesture stream using manual timestamp diffing (`Date.now() - lastTap.current.time < 300`), resulting in instantaneous cursor placement latency.
+- **Teardrop Hitboxes:** The single blinking cursor was upgraded to a 0-width selection (a stationary teardrop anchor) upon being tapped. To prevent finger occlusion during dragging, `getLineColumn` y-coordinates were offset by `-15px`.
+- **Autocorrect Replacement Diffing:** Replaced the fragile `startsWith` typing heuristic in `useEditorInput.ts` with a rigorous common-prefix differ. When predictive keyboards forcefully replace mid-string text (e.g. `aminated` to `animated`), the editor accurately calculates the backspace sequence (`minated`) and insert string (`nimated`) natively.
+- **Atomic Bulk Undo:** The C++ `backspace` API was updated to support bulk character deletions via byte offsets (`getOffsetAt`). Reverting massive clipboard pastes natively via keyboard undo now triggers a single atomic engine wipe, eliminating multi-second loop lag.
+- **Scroll Physics Syncing:** Momentum scroll bound detection (`(hitXBound && hitYBound)`) was fixed so hitting a single-axis wall immediately zeroes the physics engine. The `FloatingMenu` is dynamically unmounted via `isFingerScrolling` states during active scrolling and fades back in using `react-native-reanimated` layout transitions immediately on physics termination.
