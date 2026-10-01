@@ -392,6 +392,49 @@ export class EditorStateManager {
     }
   }
 
+  animateScrollTo(targetX: number, targetY: number) {
+    this.stopMomentumScroll();
+    
+    // Clamp targets
+    const finalX = Math.max(0, targetX);
+    const finalY = Math.max(0, Math.min(this.maxScrollY, targetY));
+    
+    if (Math.abs(this.scrollOffset.x - finalX) < 1 && Math.abs(this.scrollOffset.y - finalY) < 1) {
+      this.scrollOffset = { x: finalX, y: finalY };
+      return;
+    }
+
+    const durationMs = 200;
+    const startX = this.scrollOffset.x;
+    const startY = this.scrollOffset.y;
+    const startTime = global.performance ? performance.now() : Date.now();
+    
+    const tick = () => {
+      const now = global.performance ? performance.now() : Date.now();
+      const elapsed = now - startTime;
+      let progress = elapsed / durationMs;
+      
+      if (progress >= 1) {
+        this.scrollOffset = { x: finalX, y: finalY };
+        this._momentumAnimId = null;
+        this.invalidate();
+        return;
+      }
+      
+      // easeOutCubic
+      const ease = 1 - Math.pow(1 - progress, 3);
+      this.scrollOffset = {
+        x: startX + (finalX - startX) * ease,
+        y: startY + (finalY - startY) * ease,
+      };
+      
+      this.invalidate();
+      this._momentumAnimId = requestAnimationFrame(tick);
+    };
+    
+    this._momentumAnimId = requestAnimationFrame(tick);
+  }
+
   /**
    * Update scroll offset (e.g. from a pan gesture).
    * Clamps to valid bounds.
@@ -786,9 +829,10 @@ export class EditorStateManager {
       }
     }
 
-    // Apply bounds
-    this.scrollOffset.x = Math.max(0, targetX);
-    this.scrollOffset.y = Math.max(0, Math.min(this.maxScrollY, targetY));
+    // Apply bounds smoothly if it's a large jump, otherwise snap.
+    // Actually, animateScrollTo handles small jumps by returning instantly,
+    // and smooths out the big typewriter jumps!
+    this.animateScrollTo(targetX, targetY);
   }
 
   // ── Cleanup ──────────────────────────────────────────────────────────────
