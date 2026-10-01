@@ -241,4 +241,9 @@ export interface EditorEngine
   isPositionValid(line: number, column: number): boolean;
   /** Get a hash of the current document content (for change detection). */
   getContentHash(): string;
+
+  // ─── Diagnostics ──────────────────────────────────────────────────────────
+
+  /** Get a list of internal silently caught errors. */
+  getInternalErrors(): string[];
 }

@@ -51,13 +51,28 @@ SyntaxEngine::SyntaxEngine(const PieceTable* pieceTable) : pieceTable_(pieceTabl
         "instanceof" @keyword
         "in" @keyword
         "of" @keyword
-        "true" @keyword
-        "false" @keyword
-        "null" @keyword
+        (true) @keyword
+        (false) @keyword
+        (null) @keyword
     )";
     uint32_t error_offset;
     TSQueryError error_type;
     query_ = ts_query_new(tree_sitter_javascript(), query_source, strlen(query_source), &error_offset, &error_type);
+    
+    if (!query_) {
+        internalErrors_.push_back("TSQuery failed to compile. Error type: " + std::to_string(error_type) + " at offset: " + std::to_string(error_offset));
+        // Fallback to a minimal safe query if the complex one fails due to version mismatch
+        const char* safe_query = R"(
+            (identifier) @variable
+            (string) @string
+            (number) @number
+            (comment) @comment
+        )";
+        query_ = ts_query_new(tree_sitter_javascript(), safe_query, strlen(safe_query), &error_offset, &error_type);
+        if (!query_) {
+            internalErrors_.push_back("Safe TSQuery also failed. Error type: " + std::to_string(error_type));
+        }
+    }
 }
 
 SyntaxEngine::~SyntaxEngine() {

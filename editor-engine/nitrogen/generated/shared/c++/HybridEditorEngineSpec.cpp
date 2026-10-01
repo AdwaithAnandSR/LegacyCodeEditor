@@ -57,6 +57,7 @@ namespace margelo::nitro::editorengine {
       prototype.registerHybridMethod("clampPosition", &HybridEditorEngineSpec::clampPosition);
       prototype.registerHybridMethod("isPositionValid", &HybridEditorEngineSpec::isPositionValid);
       prototype.registerHybridMethod("getContentHash", &HybridEditorEngineSpec::getContentHash);
+      prototype.registerHybridMethod("getInternalErrors", &HybridEditorEngineSpec::getInternalErrors);
     });
   }
 

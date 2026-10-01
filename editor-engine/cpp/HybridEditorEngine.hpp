@@ -387,6 +387,7 @@ private:
     PieceTable pieceTable_;
     std::unique_ptr<SyntaxEngine> syntaxEngine_;
     UndoManager undoManager_;
+    std::vector<std::string> internalErrors_;
 
     // Editor settings
     LineEnding lineEnding_ = LineEnding::LF;
@@ -1079,6 +1080,15 @@ public:
 
     std::string getContentHash() override {
         return computeHash(pieceTable_.getText());
+    }
+
+    std::vector<std::string> getInternalErrors() override {
+        std::vector<std::string> errors = internalErrors_;
+        if (syntaxEngine_) {
+            const auto& syntaxErrors = syntaxEngine_->getInternalErrors();
+            errors.insert(errors.end(), syntaxErrors.begin(), syntaxErrors.end());
+        }
+        return errors;
     }
 
     // ─── Memory Size ────────────────────────────────────────────────────

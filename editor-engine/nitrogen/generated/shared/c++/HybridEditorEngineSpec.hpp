@@ -118,6 +118,7 @@ namespace margelo::nitro::editorengine {
       virtual CursorPosition clampPosition(double line, double column) = 0;
       virtual bool isPositionValid(double line, double column) = 0;
       virtual std::string getContentHash() = 0;
+      virtual std::vector<std::string> getInternalErrors() = 0;
 
     protected:
       // Hybrid Setup
