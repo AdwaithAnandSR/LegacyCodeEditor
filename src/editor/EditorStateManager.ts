@@ -615,7 +615,7 @@ export class EditorStateManager {
     
     // Crucial: if they tapped in the empty void to the right, the column clamped.
     // We MUST snap the viewport back to the actual text so they don't get lost!
-    this.scrollToCursor(true);
+    this.scrollToCursor(false);
     this.invalidate();
   }
 
@@ -638,7 +638,7 @@ export class EditorStateManager {
       this.setCursor(wordRange.endLine, wordRange.endColumn, true);
     }
 
-    this.scrollToCursor(true);
+    this.scrollToCursor(false);
     this.invalidate();
   }
 
@@ -661,7 +661,7 @@ export class EditorStateManager {
       this.selection = { ...wordRange };
     }
     this.setCursor(pos.line, pos.column, true);
-    this.scrollToCursor(true);
+    this.scrollToCursor(false);
     this.invalidate();
   }
 
@@ -747,7 +747,11 @@ export class EditorStateManager {
     
     // --- Y Scrolling Math ---
     let targetY = this.scrollOffset.y;
-    if (forceCenter || this.isKeyboardVisible) {
+    
+    // Only apply typewriter centering if keyboard is visible AND we are not actively selecting/dragging text.
+    const shouldCenter = forceCenter || (this.isKeyboardVisible && !this.isDraggingSelection && !this.selection);
+    
+    if (shouldCenter) {
       targetY = cursorY - this.viewport.height * EDITOR_THEME.typewriterOffset + lineHeight / 2;
     } else {
       const viewTop = this.scrollOffset.y;
