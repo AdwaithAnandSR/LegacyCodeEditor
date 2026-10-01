@@ -144,23 +144,7 @@ export function useEditorScroll(
     .runOnJS(true);
 
   const startedInMenu = useRef(false);
-
-  const doubleTapGesture = Gesture.Tap()
-    .numberOfTaps(2)
-    .onBegin((e) => {
-      startedInMenu.current = stateManager.isPointInFloatingMenu(e.x, e.y);
-      wasScrolling.current = stateManager.isMomentumScrolling();
-      stateManager.stopMomentumScroll();
-    })
-    .onEnd((e) => {
-      if (startedInMenu.current) return;
-      if (!wasScrolling.current) {
-        stateManager.handleWordSelection(e.x, e.y);
-        onTap?.();
-      }
-    })
-    .maxDuration(250)
-    .runOnJS(true);
+  const lastTap = useRef({ time: 0, x: 0, y: 0 });
 
   const tapGesture = Gesture.Tap()
     .onBegin((e) => {
@@ -170,16 +154,26 @@ export function useEditorScroll(
     })
     .onEnd((e) => {
       if (startedInMenu.current) return;
-      // If the scrollview was moving, this tap just catches it. Don't move the cursor.
       if (!wasScrolling.current) {
-        stateManager.handleTap(e.x, e.y);
+        const now = Date.now();
+        const dx = Math.abs(e.x - lastTap.current.x);
+        const dy = Math.abs(e.y - lastTap.current.y);
+        
+        // Detect double tap: within 300ms and finger didn't move too far
+        if (now - lastTap.current.time < 300 && dx < 30 && dy < 30) {
+          stateManager.handleWordSelection(e.x, e.y);
+          lastTap.current.time = 0; // Reset so a 3rd tap starts over
+        } else {
+          stateManager.handleTap(e.x, e.y);
+          lastTap.current = { time: now, x: e.x, y: e.y };
+        }
+        
         onTap?.();
       }
     })
-    .maxDuration(250)
     .runOnJS(true);
 
-  const gesture = Gesture.Exclusive(selectionPanGesture, panGesture, doubleTapGesture, tapGesture);
+  const gesture = Gesture.Exclusive(selectionPanGesture, panGesture, tapGesture);
 
   return { gesture };
 }
