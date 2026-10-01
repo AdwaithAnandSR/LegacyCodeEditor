@@ -72,9 +72,12 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
   // Simple X positioning (could be improved to center over selection)
   const x = EDITOR_THEME.gutterWidth + EDITOR_THEME.contentPaddingLeft + 20;
 
-  // If menu goes above screen, put it below the line instead
+  // If menu goes above screen, put it below the selection instead
   if (y < 10) {
-    y = lineY - stateManager.scrollOffset.y + EDITOR_THEME.lineHeight + 10;
+    const endLine = Math.max(selection.startLine, selection.endLine);
+    const endLineY = stateManager.getLineY(endLine);
+    // +45px to clear the teardrop handle which extends ~39px below the text
+    y = endLineY - stateManager.scrollOffset.y + EDITOR_THEME.lineHeight + 45;
   }
 
   // If STILL off-screen (e.g. selection start is far above), clamp to top of viewport
