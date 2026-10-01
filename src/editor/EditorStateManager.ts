@@ -125,17 +125,10 @@ export class EditorStateManager {
     };
   }
 
-  private _isInvalidationPending = false;
-
-  /** Notify the canvas that it should repaint (batched per frame). */
+  /** Notify the canvas that it should repaint. */
   invalidate() {
-    if (this._isInvalidationPending) return;
-    this._isInvalidationPending = true;
-    requestAnimationFrame(() => {
-      this._isInvalidationPending = false;
-      this._invalidate?.();
-      this.notifyUI();
-    });
+    this._invalidate?.();
+    this.notifyUI();
   }
 
   // ── Content ──────────────────────────────────────────────────────────────
