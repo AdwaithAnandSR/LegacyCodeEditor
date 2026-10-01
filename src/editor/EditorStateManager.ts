@@ -15,7 +15,7 @@
  * here and only expose that window.
  */
 
-import { createEditorEngine, type EditorEngine, type CursorPosition } from "editor-engine";
+import { createEditorEngine, type EditorEngine, type CursorPosition, type TextRange } from "editor-engine";
 import { EDITOR_THEME } from "./theme";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -56,6 +56,18 @@ export class EditorStateManager {
   /** Whether the cursor blink is currently in "visible" phase. */
   cursorVisible = true;
 
+  // ── Selection ────────────────────────────────────────────────────────────
+  selection: TextRange | null = null;
+
+  getNormalizedSelection(): TextRange | null {
+    if (!this.selection) return null;
+    const { startLine, startColumn, endLine, endColumn } = this.selection;
+    if (startLine > endLine || (startLine === endLine && startColumn > endColumn)) {
+      return { startLine: endLine, startColumn: endColumn, endLine: startLine, endColumn: startColumn };
+    }
+    return this.selection;
+  }
+
   // ── Scroll ───────────────────────────────────────────────────────────────
   scrollOffset: ScrollOffset = { x: 0, y: 0 };
 
@@ -75,6 +87,20 @@ export class EditorStateManager {
     this.engine.loadContent("");
   }
 
+  // ── UI Subscription (for React overlays) ─────────────────────────────────
+  private _uiListeners = new Set<() => void>();
+
+  subscribeUI = (listener: () => void) => {
+    this._uiListeners.add(listener);
+    return () => {
+      this._uiListeners.delete(listener);
+    };
+  };
+
+  notifyUI() {
+    this._uiListeners.forEach((cb) => cb());
+  }
+
   // ── Public API ───────────────────────────────────────────────────────────
 
   /**
@@ -91,6 +117,7 @@ export class EditorStateManager {
   /** Notify the canvas that it should repaint. */
   invalidate() {
     this._invalidate?.();
+    this.notifyUI();
   }
 
   // ── Content ──────────────────────────────────────────────────────────────
@@ -99,6 +126,7 @@ export class EditorStateManager {
     this.engine.loadContent(text);
     this.cursorLine = 1;
     this.cursorColumn = 0;
+    this.selection = null;
     this.scrollOffset = { x: 0, y: 0 };
     this.invalidate();
   }
@@ -110,12 +138,19 @@ export class EditorStateManager {
    * Called by the TextInput bridge when the user types.
    */
   insertAtCursor(text: string) {
-    const newPos = this.engine.insertText(
-      this.cursorLine,
-      this.cursorColumn,
-      text,
-    );
-    this.setCursor(newPos.line, newPos.column);
+    const normSel = this.getNormalizedSelection();
+    if (normSel) {
+      const newPos = this.engine.replaceText(normSel, text);
+      this.setCursor(newPos.line, newPos.column);
+      this.selection = null;
+    } else {
+      const newPos = this.engine.insertText(
+        this.cursorLine,
+        this.cursorColumn,
+        text,
+      );
+      this.setCursor(newPos.line, newPos.column);
+    }
     this.resetBlink();
     this.scrollToCursor();
     this.invalidate();
@@ -125,6 +160,17 @@ export class EditorStateManager {
    * Delete the character before the cursor (backspace).
    */
   backspace() {
+    const normSel = this.getNormalizedSelection();
+    if (normSel) {
+      this.engine.deleteText(normSel);
+      this.setCursor(normSel.startLine, normSel.startColumn);
+      this.selection = null;
+      this.resetBlink();
+      this.scrollToCursor();
+      this.invalidate();
+      return;
+    }
+
     if (this.cursorColumn === 0 && this.cursorLine === 1) return;
 
     let deleteLine: number;
@@ -157,6 +203,17 @@ export class EditorStateManager {
    * Delete the character after the cursor (forward delete).
    */
   deleteForward() {
+    const normSel = this.getNormalizedSelection();
+    if (normSel) {
+      this.engine.deleteText(normSel);
+      this.setCursor(normSel.startLine, normSel.startColumn);
+      this.selection = null;
+      this.resetBlink();
+      this.scrollToCursor();
+      this.invalidate();
+      return;
+    }
+
     const lineCount = this.engine.lineCount;
     const lineLen = this.engine.getLineLength(this.cursorLine);
 
@@ -194,10 +251,13 @@ export class EditorStateManager {
 
   // ── Cursor Movement ──────────────────────────────────────────────────────
 
-  setCursor(line: number, column: number) {
+  setCursor(line: number, column: number, keepSelection = false) {
     const clamped = this.engine.clampPosition(line, column);
     this.cursorLine = clamped.line;
     this.cursorColumn = clamped.column;
+    if (!keepSelection) {
+      this.selection = null;
+    }
     this.resetBlink();
   }
 
@@ -413,13 +473,8 @@ export class EditorStateManager {
 
   // ── Tap-to-place-cursor ──────────────────────────────────────────────────
 
-  /**
-   * Given a tap in canvas coordinates, move the cursor to the
-   * nearest line/column.
-   */
-  handleTap(canvasX: number, canvasY: number) {
-    this.stopMomentumScroll();
-    if (this.charWidth === 0) return;
+  getLineColumn(canvasX: number, canvasY: number): { line: number; column: number } {
+    if (this.charWidth === 0) return { line: 1, column: 0 };
     
     const { lineHeight, contentPaddingTop, gutterWidth, contentPaddingLeft } =
       EDITOR_THEME;
@@ -438,11 +493,49 @@ export class EditorStateManager {
     const lineLen = this.engine.getLineLength(line);
     col = Math.min(col, lineLen);
 
-    this.setCursor(line, col);
+    return { line, column: col };
+  }
+
+  /**
+   * Given a tap in canvas coordinates, move the cursor to the
+   * nearest line/column.
+   */
+  handleTap(canvasX: number, canvasY: number) {
+    this.stopMomentumScroll();
+    const pos = this.getLineColumn(canvasX, canvasY);
+
+    this.setCursor(pos.line, pos.column);
     
     // Crucial: if they tapped in the empty void to the right, the column clamped.
     // We MUST snap the viewport back to the actual text so they don't get lost!
     this.scrollToCursor(true);
+    this.invalidate();
+  }
+
+  handleSelectionStart(canvasX: number, canvasY: number) {
+    this.stopMomentumScroll();
+    const pos = this.getLineColumn(canvasX, canvasY);
+    this.selection = {
+      startLine: pos.line,
+      startColumn: pos.column,
+      endLine: pos.line,
+      endColumn: pos.column,
+    };
+    this.setCursor(pos.line, pos.column, true);
+    this.scrollToCursor(true);
+    this.invalidate();
+  }
+
+  handleSelectionUpdate(canvasX: number, canvasY: number) {
+    if (!this.selection) return;
+    const pos = this.getLineColumn(canvasX, canvasY);
+    this.selection = {
+      ...this.selection,
+      endLine: pos.line,
+      endColumn: pos.column,
+    };
+    this.setCursor(pos.line, pos.column, true);
+    this.scrollToCursor(false);
     this.invalidate();
   }
 

@@ -47,6 +47,7 @@ const PAINTS = {
   gutterBorder: makePaint(EDITOR_THEME.gutterBorder),
   currentLineHighlight: makePaint(EDITOR_THEME.currentLineHighlight),
   cursor: makePaint(EDITOR_THEME.cursorColor),
+  selectionBg: makePaint(EDITOR_THEME.selectionColor),
 };
 
 // ── Renderer Resources ──────────────────────────────────────────────────────
@@ -231,6 +232,50 @@ function drawEditorToCanvas(
       ),
       PAINTS.currentLineHighlight,
     );
+  }
+
+  // ── 4.5 Draw selection background ──────────────────────────────────────
+  if (state.selection && charWidth > 0) {
+    const { startLine, startColumn, endLine, endColumn } = state.selection;
+    let sLine = startLine, sCol = startColumn, eLine = endLine, eCol = endColumn;
+
+    if (sLine > eLine || (sLine === eLine && sCol > eCol)) {
+      sLine = endLine;
+      sCol = endColumn;
+      eLine = startLine;
+      eCol = startColumn;
+    }
+
+    const selFirstLine = Math.max(firstLine, sLine);
+    const selLastLine = Math.min(lastLine, eLine);
+
+    for (let lineNum = selFirstLine; lineNum <= selLastLine; lineNum++) {
+      const y = state.getLineY(lineNum);
+      const isFirst = lineNum === sLine;
+      const isLast = lineNum === eLine;
+
+      const colStart = isFirst ? sCol : 0;
+      let colEnd = isLast ? eCol : state.engine.getLineLength(lineNum) + 1; // +1 for newline
+
+      if (colEnd > colStart) {
+        const textXStart = gutterWidth + contentPaddingLeft + (colStart * charWidth) - state.scrollOffset.x;
+        const width = (colEnd - colStart) * charWidth;
+
+        let drawX = textXStart;
+        let drawWidth = width;
+        if (drawX < gutterWidth) {
+          drawWidth -= (gutterWidth - drawX);
+          drawX = gutterWidth;
+        }
+
+        if (drawWidth > 0 && drawX < canvasWidth) {
+          canvas.drawRect(
+            Skia.XYWHRect(drawX, y, Math.min(drawWidth, canvasWidth - drawX), lineHeight),
+            PAINTS.selectionBg,
+          );
+        }
+      }
+    }
   }
 
   // ── 5. Draw visible lines ──────────────────────────────────────────────

@@ -99,6 +99,18 @@ export function useEditorScroll(
     .minDistance(5)
     .runOnJS(true);
 
+  const selectionPanGesture = Gesture.Pan()
+    .activateAfterLongPress(300)
+    .onStart((e) => {
+      wasScrolling.current = stateManager.isMomentumScrolling();
+      stateManager.stopMomentumScroll();
+      stateManager.handleSelectionStart(e.x, e.y);
+    })
+    .onUpdate((e) => {
+      stateManager.handleSelectionUpdate(e.x, e.y);
+    })
+    .runOnJS(true);
+
   const tapGesture = Gesture.Tap()
     .onBegin(() => {
       wasScrolling.current = stateManager.isMomentumScrolling();
@@ -114,7 +126,7 @@ export function useEditorScroll(
     .maxDuration(250)
     .runOnJS(true);
 
-  const gesture = Gesture.Exclusive(panGesture, tapGesture);
+  const gesture = Gesture.Exclusive(selectionPanGesture, panGesture, tapGesture);
 
   return { gesture };
 }

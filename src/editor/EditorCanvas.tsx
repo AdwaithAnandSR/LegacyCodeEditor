@@ -40,6 +40,7 @@ import {
 } from "./SkiaRenderer";
 import { useEditorInput, SENTINEL } from "./useEditorInput";
 import { useEditorScroll } from "./useEditorScroll";
+import { FloatingMenu } from "./FloatingMenu";
 import { EDITOR_THEME } from "./theme";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -153,6 +154,8 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
             autoFocus
           />
         </View>
+
+        <FloatingMenu stateManager={stateManager} />
       </View>
     </GestureDetector>
   );
