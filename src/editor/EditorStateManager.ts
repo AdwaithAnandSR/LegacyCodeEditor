@@ -541,7 +541,7 @@ export class EditorStateManager {
     this.selection = newSelection;
     this.setCursor(this.activeHandle === 'start' ? newSelection.startLine : newSelection.endLine, 
                    this.activeHandle === 'start' ? newSelection.startColumn : newSelection.endColumn, true);
-    this.scrollToCursor(false);
+    this.scrollToCursor(false, true);
     this.invalidate();
   }
 
@@ -615,7 +615,7 @@ export class EditorStateManager {
     
     // Crucial: if they tapped in the empty void to the right, the column clamped.
     // We MUST snap the viewport back to the actual text so they don't get lost!
-    this.scrollToCursor(false);
+    this.scrollToCursor(false, true);
     this.invalidate();
   }
 
@@ -638,7 +638,7 @@ export class EditorStateManager {
       this.setCursor(wordRange.endLine, wordRange.endColumn, true);
     }
 
-    this.scrollToCursor(false);
+    this.scrollToCursor(false, true);
     this.invalidate();
   }
 
@@ -661,7 +661,7 @@ export class EditorStateManager {
       this.selection = { ...wordRange };
     }
     this.setCursor(pos.line, pos.column, true);
-    this.scrollToCursor(false);
+    this.scrollToCursor(false, true);
     this.invalidate();
   }
 
@@ -700,7 +700,7 @@ export class EditorStateManager {
       endColumn: pos.column,
     };
     this.setCursor(pos.line, pos.column, true);
-    this.scrollToCursor(false);
+    this.scrollToCursor(false, true);
     this.invalidate();
   }
 
@@ -739,7 +739,7 @@ export class EditorStateManager {
 
   // ── Ensure cursor is in viewport ─────────────────────────────────────────
 
-  scrollToCursor(forceCenter: boolean = false) {
+  scrollToCursor(forceCenter: boolean = false, preventTypewriter: boolean = false) {
     if (this.viewport.height === 0) return;
 
     const { lineHeight, contentPaddingTop } = EDITOR_THEME;
@@ -750,10 +750,10 @@ export class EditorStateManager {
     const viewTop = this.scrollOffset.y;
     const viewBottom = viewTop + this.viewport.height;
     
-    // Only apply typewriter centering if keyboard is visible, we are not actively selecting/dragging,
-    // and the cursor goes beyond 70% of the visible screen height.
-    const isBeyond70 = cursorY + lineHeight > viewTop + this.viewport.height * 0.7;
-    const shouldCenter = forceCenter || (this.isKeyboardVisible && !this.isDraggingSelection && !this.selection && isBeyond70);
+    // Only apply typewriter centering if keyboard is visible, we are typing (not tapping/dragging),
+    // and the cursor goes beyond 50% of the visible screen height.
+    const isBeyond50 = cursorY + lineHeight > viewTop + this.viewport.height * 0.5;
+    const shouldCenter = forceCenter || (!preventTypewriter && this.isKeyboardVisible && !this.isDraggingSelection && !this.selection && isBeyond50);
     
     if (shouldCenter) {
       targetY = cursorY - this.viewport.height * EDITOR_THEME.typewriterOffset + lineHeight / 2;
