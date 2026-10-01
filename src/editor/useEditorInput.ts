@@ -61,43 +61,51 @@ export function useEditorInput(stateManager: EditorStateManager) {
         return;
       }
 
-      let diffStr = "";
-      let isBackspace = false;
-      let backspaceCount = 0;
-
-      // 1. Did the OS respect our last clearInput() command?
-      if (text.startsWith(lastTextRef.current)) {
-        diffStr = text.substring(lastTextRef.current.length);
-      } 
-      else if (lastTextRef.current.startsWith(text)) {
-        isBackspace = true;
-        backspaceCount = lastTextRef.current.length - text.length;
+      let prevStr = lastTextRef.current;
+      
+      // If the OS ignored our clearInput() asynchronously, it will still use the old sentinel
+      if (text.startsWith(SENTINEL_A) && prevStr.startsWith(SENTINEL_B)) {
+        prevStr = nativeTextRef.current;
+      } else if (text.startsWith(SENTINEL_B) && prevStr.startsWith(SENTINEL_A)) {
+        prevStr = nativeTextRef.current;
       }
-      // 2. The OS IGNORED our clearInput() command and kept its old buffer!
-      // (This happens if you tap to move cursor, we call clearInput, but Android ignores it)
-      else if (text.startsWith(nativeTextRef.current)) {
-        diffStr = text.substring(nativeTextRef.current.length);
-      } 
-      else if (nativeTextRef.current.startsWith(text)) {
-        isBackspace = true;
-        backspaceCount = nativeTextRef.current.length - text.length;
-      } 
-      // 3. Fallback: OS did something weird (e.g. replaced a word natively)
-      else {
-        // We'll just assume they appended the last typed character
-        diffStr = text.substring(text.length - 1);
+
+      let commonLen = 0;
+      const minLen = Math.min(prevStr.length, text.length);
+      while (commonLen < minLen && prevStr[commonLen] === text[commonLen]) {
+        commonLen++;
+      }
+
+      let diffStr = "";
+      let backspaceCount = 0;
+      let forceReset = false;
+
+      if (commonLen < 100) {
+        // The invisible sentinel itself was tampered with (e.g. user "Select All" in the OS popup).
+        // Backspace exactly what they typed since the last clear, and insert the entirely new text.
+        backspaceCount = Math.max(0, prevStr.length - 100);
+        diffStr = text;
+        forceReset = true; // We must restore the sentinel!
+      } else {
+        backspaceCount = prevStr.length - commonLen;
+        diffStr = text.substring(commonLen);
       }
 
       // Apply the diff to our engine
-      if (isBackspace && backspaceCount > 0) {
+      if (backspaceCount > 0) {
         stateManager.backspace(backspaceCount);
-      } else if (diffStr.length > 0) {
+      }
+      if (diffStr.length > 0) {
         stateManager.insertAtCursor(diffStr);
       }
 
       // Sync refs
       lastTextRef.current = text;
       nativeTextRef.current = text;
+
+      if (forceReset) {
+        clearInput();
+      }
     },
     [stateManager, clearInput],
   );
