@@ -32,6 +32,31 @@ import type { SyntaxToken } from "editor-engine";
 // ── Re-export TextAlign since it's in a sub-module ───────────────────────────
 import { TextAlign } from "@shopify/react-native-skia";
 
+function adjustTokensForTabs(rawLine: string, tokens: SyntaxToken[]): SyntaxToken[] {
+  let tabOffsets: number[] = [];
+  for (let i = 0; i < rawLine.length; i++) {
+    if (rawLine[i] === '\t') {
+      tabOffsets.push(i);
+    }
+  }
+  
+  if (tabOffsets.length === 0) return tokens;
+
+  return tokens.map(token => {
+    let startOffset = 0;
+    let endOffset = 0;
+    for (const tabIdx of tabOffsets) {
+      if (tabIdx < token.startColumn) startOffset += 3; // 4 spaces - 1 tab = 3 extra chars
+      if (tabIdx < token.endColumn) endOffset += 3;
+    }
+    return {
+      ...token,
+      startColumn: token.startColumn + startOffset,
+      endColumn: token.endColumn + endOffset
+    };
+  });
+}
+
 // ── Cached Paints (allocated once at module load) ────────────────────────────
 
 function makePaint(color: string, style: PaintStyle = PaintStyle.Fill): SkPaint {

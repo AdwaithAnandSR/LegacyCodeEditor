@@ -42,7 +42,7 @@ export function useEditorScroll(
   const wasScrolling = useRef(false);
 
   // Pull dynamic preference from Zustand
-  const { directionalLockEnabled } = useEditorPreferences();
+  const directionalLockEnabled = useEditorPreferences(state => state.directionalLockEnabled);
 
   const panGesture = Gesture.Pan()
     .onBegin((e) => {
@@ -54,7 +54,10 @@ export function useEditorScroll(
       }
     })
     .onStart((e) => {
-      if (stateManager.activeHandle) return;
+      if (stateManager.activeHandle) {
+        stateManager.isDraggingSelection = true;
+        return;
+      }
       panStartY.current = stateManager.scrollOffset.y;
       panStartX.current = stateManager.scrollOffset.x;
       panStartTranslation.current = { x: e.translationX, y: e.translationY };
@@ -103,11 +106,20 @@ export function useEditorScroll(
     .onEnd((e) => {
       if (stateManager.activeHandle) {
         stateManager.activeHandle = null;
+        stateManager.isDraggingSelection = false;
+        stateManager.invalidate();
         return;
       }
       const velX = scrollLock.current === 'vertical' ? 0 : e.velocityX;
       const velY = scrollLock.current === 'horizontal' ? 0 : e.velocityY;
       stateManager.startMomentumScroll(velX, velY);
+    })
+    .onFinalize(() => {
+      if (stateManager.activeHandle) {
+        stateManager.activeHandle = null;
+        stateManager.isDraggingSelection = false;
+        stateManager.invalidate();
+      }
     })
     .minDistance(5)
     .runOnJS(true);
@@ -117,10 +129,19 @@ export function useEditorScroll(
     .onStart((e) => {
       wasScrolling.current = stateManager.isMomentumScrolling();
       stateManager.stopMomentumScroll();
+      stateManager.isDraggingSelection = true;
       stateManager.handleSelectionStart(e.x, e.y);
     })
     .onUpdate((e) => {
       stateManager.handleSelectionUpdate(e.x, e.y);
+    })
+    .onEnd(() => {
+      stateManager.isDraggingSelection = false;
+      stateManager.invalidate();
+    })
+    .onFinalize(() => {
+      stateManager.isDraggingSelection = false;
+      stateManager.invalidate();
     })
     .runOnJS(true);
 

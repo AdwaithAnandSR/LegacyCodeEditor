@@ -59,6 +59,7 @@ export class EditorStateManager {
   // ── Selection ────────────────────────────────────────────────────────────
   selection: TextRange | null = null;
   activeHandle: 'start' | 'end' | null = null;
+  isDraggingSelection: boolean = false;
 
   getNormalizedSelection(): TextRange | null {
     if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
@@ -510,6 +511,14 @@ export class EditorStateManager {
     
     // Offset canvasY by the circle's vertical distance so dragging the handle doesn't jump down a line
     const pos = this.getLineColumn(canvasX, canvasY - EDITOR_THEME.lineHeight - 10);
+    
+    // PERF: Skip object creation if position hasn't logically changed
+    if (this.activeHandle === 'start') {
+        if (this.selection.startLine === pos.line && this.selection.startColumn === pos.column) return;
+    } else {
+        if (this.selection.endLine === pos.line && this.selection.endColumn === pos.column) return;
+    }
+
     let newSelection = { ...this.selection };
     
     if (this.activeHandle === 'start') {
@@ -599,6 +608,12 @@ export class EditorStateManager {
   handleSelectionUpdate(canvasX: number, canvasY: number) {
     if (!this.selection) return;
     const pos = this.getLineColumn(canvasX, canvasY);
+    
+    // PERF: Prevent unnecessary object creation & React re-renders
+    if (this.selection.endLine === pos.line && this.selection.endColumn === pos.column) {
+      return;
+    }
+
     this.selection = {
       ...this.selection,
       endLine: pos.line,

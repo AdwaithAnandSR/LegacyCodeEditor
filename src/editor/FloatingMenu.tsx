@@ -10,7 +10,7 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
   useSyncExternalStore(stateManager.subscribeUI, () => stateManager.selection);
 
   const selection = stateManager.selection;
-  if (!selection) return null;
+  if (!selection || stateManager.isDraggingSelection) return null;
 
   const handleCopy = async () => {
     const normSel = stateManager.getNormalizedSelection();
