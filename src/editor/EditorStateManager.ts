@@ -683,7 +683,7 @@ export class EditorStateManager {
     if (!this.selection || !this.activeHandle) return;
     
     // Offset canvasY by the circle's vertical distance so dragging the handle doesn't jump down a line
-    const pos = this.getLineColumn(canvasX, canvasY - EDITOR_THEME.lineHeight - 15);
+    const pos = this.getLineColumn(canvasX, canvasY - EDITOR_THEME.lineHeight - 15, false);
     
     const isZeroWidth = this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn;
 
@@ -716,7 +716,7 @@ export class EditorStateManager {
     this.invalidate();
   }
 
-  getLineColumn(canvasX: number, canvasY: number): { line: number; column: number } {
+  getLineColumn(canvasX: number, canvasY: number, snapToEdges = true): { line: number; column: number } {
     if (this.charWidth === 0) return { line: 1, column: 0 };
     
     const { lineHeight, contentPaddingTop, gutterWidth, contentPaddingLeft } =
@@ -737,10 +737,14 @@ export class EditorStateManager {
     
     // Snapping behavior: if the user drags/taps vertically outside the document bounds,
     // unconditionally snap to the absolute end (or start) of the text.
-    if (rawLine > this.engine.lineCount) {
-      col = lineLen;
-    } else if (rawLine < 1) {
-      col = 0;
+    if (snapToEdges) {
+      if (rawLine > this.engine.lineCount) {
+        col = lineLen;
+      } else if (rawLine < 1) {
+        col = 0;
+      } else {
+        col = Math.min(col, lineLen);
+      }
     } else {
       col = Math.min(col, lineLen);
     }

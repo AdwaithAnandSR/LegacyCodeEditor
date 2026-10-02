@@ -44,6 +44,8 @@ export function useEditorScroll(
   // Pull dynamic preference from Zustand
   const directionalLockEnabled = useEditorPreferences(state => state.directionalLockEnabled);
 
+  const gestureOwner = useRef<'pan' | 'selection' | null>(null);
+
   const panGesture = Gesture.Pan()
     .onBegin((e) => {
       wasScrolling.current = stateManager.isMomentumScrolling();
@@ -54,6 +56,7 @@ export function useEditorScroll(
       }
     })
     .onStart((e) => {
+      gestureOwner.current = 'pan';
       if (stateManager.activeHandle) {
         stateManager.isDraggingSelection = true;
         return;
@@ -78,13 +81,8 @@ export function useEditorScroll(
         const dx = Math.abs(activeTranslationX);
         const dy = Math.abs(activeTranslationY);
         
-        // Wait for just 3 pixels of active movement to reliably determine intention.
-        // (Because RNGH sometimes zeroes out e.translation in onStart, we must wait for onUpdate).
         if (dx > 3 || dy > 3) {
           scrollLock.current = dx > dy ? 'horizontal' : 'vertical';
-          
-          // The exact millisecond we lock, freeze the inactive axis at whatever tiny 
-          // 3-pixel offset it had drifted to. This prevents it from teleporting back to 0!
           frozenX.current = activeTranslationX;
           frozenY.current = activeTranslationY;
         }
@@ -117,10 +115,13 @@ export function useEditorScroll(
       stateManager.startMomentumScroll(velX, velY);
     })
     .onFinalize(() => {
-      if (stateManager.activeHandle) {
-        stateManager.activeHandle = null;
-        stateManager.isDraggingSelection = false;
-        stateManager.invalidate();
+      if (gestureOwner.current === 'pan') {
+        if (stateManager.activeHandle) {
+          stateManager.activeHandle = null;
+          stateManager.isDraggingSelection = false;
+          stateManager.invalidate();
+        }
+        gestureOwner.current = null;
       }
     })
     .minDistance(5)
@@ -129,34 +130,82 @@ export function useEditorScroll(
   const selectionPanGesture = Gesture.Pan()
     .activateAfterLongPress(300)
     .onStart((e) => {
+      gestureOwner.current = 'selection';
       wasScrolling.current = stateManager.isMomentumScrolling();
       stateManager.stopMomentumScroll();
+      
+      const handle = stateManager.getHandleAt(e.x, e.y);
+      if (handle) {
+        stateManager.activeHandle = handle;
+        stateManager.isDraggingSelection = true;
+        return;
+      }
+      
+      // If they are touching exactly on the active zero-width cursor, don't trigger a new word selection.
+      const pos = stateManager.getLineColumn(e.x, e.y);
+      if (stateManager.selection && 
+          stateManager.selection.startLine === stateManager.selection.endLine && 
+          stateManager.selection.startColumn === stateManager.selection.endColumn &&
+          stateManager.selection.startLine === pos.line &&
+          stateManager.selection.startColumn === pos.column) {
+        return;
+      }
+      
       stateManager.isDraggingSelection = true;
       stateManager.handleSelectionStart(e.x, e.y);
     })
     .onUpdate((e) => {
+      if (!stateManager.isDraggingSelection) return;
+      
+      if (stateManager.activeHandle) {
+        stateManager.handleHandleDrag(e.x, e.y);
+        return;
+      }
       stateManager.handleSelectionUpdate(e.x, e.y);
     })
     .onEnd(() => {
+      if (stateManager.activeHandle) {
+        stateManager.activeHandle = null;
+        stateManager.isDraggingSelection = false;
+        stateManager.invalidate();
+        return;
+      }
       stateManager.handleSelectionEnd();
     })
     .onFinalize(() => {
-      stateManager.handleSelectionEnd();
+      if (gestureOwner.current === 'selection') {
+        if (stateManager.activeHandle) {
+          stateManager.activeHandle = null;
+          stateManager.isDraggingSelection = false;
+          stateManager.invalidate();
+        } else {
+          stateManager.handleSelectionEnd();
+        }
+        gestureOwner.current = null;
+      }
     })
     .runOnJS(true);
 
   const startedInMenu = useRef(false);
+  const startedOnHandle = useRef(false);
   const lastTap = useRef({ time: 0, x: 0, y: 0 });
 
   const tapGesture = Gesture.Tap()
     .onBegin((e) => {
       startedInMenu.current = stateManager.isPointInFloatingMenu(e.x, e.y);
+      startedOnHandle.current = !!stateManager.getHandleAt(e.x, e.y);
       wasScrolling.current = stateManager.isMomentumScrolling();
       stateManager.stopMomentumScroll();
     })
     .onEnd((e) => {
       if (startedInMenu.current) return;
       if (!wasScrolling.current) {
+        if (startedOnHandle.current) {
+          stateManager.floatingMenuVisible = true;
+          stateManager.invalidate();
+          return;
+        }
+
         const now = Date.now();
         const dx = Math.abs(e.x - lastTap.current.x);
         const dy = Math.abs(e.y - lastTap.current.y);
