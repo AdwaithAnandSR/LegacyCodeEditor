@@ -203,11 +203,18 @@ export class EditorStateManager {
 
   indent() {
     const normSel = this.getNormalizedSelection();
-    if (normSel) {
+    if (normSel && normSel.startLine !== normSel.endLine) {
       this.engine.indentLines(normSel.startLine, normSel.endLine);
+      this.setCursor(this.cursorLine, this.cursorColumn + 2);
     } else {
-      this.engine.indentLine(this.cursorLine);
-      this.setCursor(this.cursorLine, this.cursorColumn + 2); // rough estimate, clamp handles overflow
+      if (normSel) {
+        const newPos = this.engine.replaceText(normSel, "  ");
+        this.setCursor(newPos.line, newPos.column);
+        this.selection = null;
+      } else {
+        const newPos = this.engine.insertText(this.cursorLine, this.cursorColumn, "  ");
+        this.setCursor(newPos.line, newPos.column);
+      }
     }
     this.resetBlink();
     this.scrollToCursor();
@@ -216,11 +223,42 @@ export class EditorStateManager {
 
   outdent() {
     const normSel = this.getNormalizedSelection();
-    if (normSel) {
+    if (normSel && normSel.startLine !== normSel.endLine) {
       this.engine.outdentLines(normSel.startLine, normSel.endLine);
+      this.setCursor(this.cursorLine, Math.max(0, this.cursorColumn - 2));
     } else {
-      this.engine.outdentLine(this.cursorLine);
-      this.setCursor(this.cursorLine, this.cursorColumn - 2);
+      const col = this.cursorColumn;
+      if (col > 0) {
+        const numToCheck = Math.min(2, col);
+        const range = {
+          startLine: this.cursorLine,
+          startColumn: col - numToCheck,
+          endLine: this.cursorLine,
+          endColumn: col
+        };
+        const textBefore = this.engine.getTextInRange(range);
+        
+        let spacesToDelete = 0;
+        if (textBefore.endsWith("  ")) spacesToDelete = 2;
+        else if (textBefore.endsWith(" ")) spacesToDelete = 1;
+
+        if (spacesToDelete > 0) {
+          const delRange = {
+            startLine: this.cursorLine,
+            startColumn: col - spacesToDelete,
+            endLine: this.cursorLine,
+            endColumn: col
+          };
+          this.engine.deleteText(delRange);
+          this.setCursor(this.cursorLine, col - spacesToDelete);
+          if (normSel) this.selection = null;
+        } else {
+          this.engine.outdentLine(this.cursorLine);
+          this.setCursor(this.cursorLine, Math.max(0, col - 2));
+        }
+      } else {
+        this.engine.outdentLine(this.cursorLine);
+      }
     }
     this.resetBlink();
     this.scrollToCursor();
