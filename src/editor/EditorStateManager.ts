@@ -626,8 +626,8 @@ export class EditorStateManager {
 
     // Compute line
     const absY = canvasY + this.scrollOffset.y - contentPaddingTop;
-    let line = Math.floor(absY / lineHeight) + 1;
-    line = Math.max(1, Math.min(this.engine.lineCount, line));
+    const rawLine = Math.floor(absY / lineHeight) + 1;
+    let line = Math.max(1, Math.min(this.engine.lineCount, rawLine));
 
     // Compute column (only in content area, not gutter)
     const contentX = canvasX - gutterWidth - contentPaddingLeft + this.scrollOffset.x;
@@ -636,7 +636,16 @@ export class EditorStateManager {
 
     // Clamp column to line length
     const lineLen = this.engine.getLineLength(line);
-    col = Math.min(col, lineLen);
+    
+    // Snapping behavior: if the user drags/taps vertically outside the document bounds,
+    // unconditionally snap to the absolute end (or start) of the text.
+    if (rawLine > this.engine.lineCount) {
+      col = lineLen;
+    } else if (rawLine < 1) {
+      col = 0;
+    } else {
+      col = Math.min(col, lineLen);
+    }
 
     return { line, column: col };
   }
