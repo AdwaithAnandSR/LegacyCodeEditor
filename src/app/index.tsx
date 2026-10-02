@@ -16,7 +16,8 @@ console.log("Fibonacci(10) =", result);
 
 `;
 
-import { KeyboardAvoidingView, Platform } from "react-native";
+import { Platform } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 export default function EditorScreen() {
   return (
@@ -32,7 +33,7 @@ export default function EditorScreen() {
         {/* Editor takes all remaining space */}
         <KeyboardAvoidingView 
           style={styles.editorContainer} 
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior="padding"
         >
           <EditorCanvas initialContent={SAMPLE_CODE} />
         </KeyboardAvoidingView>

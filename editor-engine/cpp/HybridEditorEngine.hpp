@@ -936,7 +936,11 @@ public:
         } else {
             indent = "\t";
         }
+        CursorPosition startPos = toPosition(offset);
         pieceTable_.insert(offset, indent);
+        size_t newOffset = offset + indent.size();
+        CursorPosition newPos = toPosition(newOffset);
+        if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
     }
 
     void outdentLine(double lineNumber) override {
@@ -957,7 +961,12 @@ public:
         }
 
         if (toRemove > 0) {
+            CursorPosition startPos = toPosition(offset);
+            size_t endOff = offset + toRemove;
+            CursorPosition oldEndPos = toPosition(endOff);
             pieceTable_.remove(offset, toRemove);
+            CursorPosition newEndPos = toPosition(offset);
+            if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, endOff, offset, startPos, oldEndPos, newEndPos);
         }
     }
 
@@ -977,7 +986,11 @@ public:
         // Insert from last to first to preserve offsets
         for (size_t i = e; i >= s && i > 0; --i) {
             size_t offset = pieceTable_.getLineStartOffset(i - 1);
+            CursorPosition startPos = toPosition(offset);
             pieceTable_.insert(offset, indent);
+            size_t newOffset = offset + indent.size();
+            CursorPosition newPos = toPosition(newOffset);
+            if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
         }
     }
 
@@ -1005,7 +1018,12 @@ public:
             }
 
             if (toRemove > 0) {
+                CursorPosition startPos = toPosition(offset);
+                size_t endOff = offset + toRemove;
+                CursorPosition oldEndPos = toPosition(endOff);
                 pieceTable_.remove(offset, toRemove);
+                CursorPosition newEndPos = toPosition(offset);
+                if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, endOff, offset, startPos, oldEndPos, newEndPos);
             }
         }
     }

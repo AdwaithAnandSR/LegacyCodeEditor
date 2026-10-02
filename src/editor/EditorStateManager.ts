@@ -459,13 +459,13 @@ export class EditorStateManager {
     // Velocity is from the finger. If finger moves down (positive Y), 
     // we want to scroll up (decrease scrollOffset.y). Thus, negate velocity.
     this._momentumVelocity = { x: -velocityX, y: -velocityY };
-    this._lastMomentumTime = global.performance ? performance.now() : Date.now();
+    this._lastMomentumTime = typeof performance !== "undefined" ? performance.now() : Date.now();
     
     const tick = (time: number) => {
       // requestAnimationFrame passes a timestamp, but it might be based on 
       // a different epoch than our starting time depending on the RN version.
       // We calculate our own delta safely.
-      const now = global.performance ? performance.now() : Date.now();
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
       const dt = now - this._lastMomentumTime;
       this._lastMomentumTime = now;
 
@@ -527,10 +527,10 @@ export class EditorStateManager {
     const durationMs = 200;
     const startX = this.scrollOffset.x;
     const startY = this.scrollOffset.y;
-    const startTime = global.performance ? performance.now() : Date.now();
+    const startTime = typeof performance !== "undefined" ? performance.now() : Date.now();
     
     const tick = () => {
-      const now = global.performance ? performance.now() : Date.now();
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
       const elapsed = now - startTime;
       let progress = elapsed / durationMs;
       

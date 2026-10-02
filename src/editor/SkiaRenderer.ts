@@ -21,6 +21,7 @@ import {
   type SkPicture,
   PaintStyle,
   type SkPaint,
+  type SkPath,
   type SkTypefaceFontProvider,
   type SkParagraph,
   createPicture,
@@ -79,10 +80,11 @@ const PAINTS = {
 
 // A reusable teardrop shape pointing up, commonly used in mobile OS cursors.
 // Tip is at (0, -15), arc centers at (0, 0) with radius 10.
-const WATER_DROP_PATH = Skia.Path.MakeFromSVGString(
+const parsedWaterDropPath = Skia.Path.MakeFromSVGString(
   "M 0 -15 L 7.45 -6.66 A 10 10 0 1 1 -7.45 -6.66 Z"
 );
-if (!WATER_DROP_PATH) throw new Error("Failed to parse WATER_DROP_PATH");
+if (!parsedWaterDropPath) throw new Error("Failed to parse WATER_DROP_PATH");
+const WATER_DROP_PATH: SkPath = parsedWaterDropPath;
 
 // ── Renderer Resources ──────────────────────────────────────────────────────
 
