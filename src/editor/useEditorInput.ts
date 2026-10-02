@@ -84,11 +84,25 @@ export function useEditorInput(stateManager: EditorStateManager) {
       let forceReset = false;
 
       if (commonLen < 100) {
-        // The invisible sentinel itself was tampered with (e.g. user "Select All" in the OS popup).
-        // Backspace exactly what they typed since the last clear, and insert the entirely new text.
-        backspaceCount = Math.max(0, prevStr.length - 100);
-        diffStr = text;
-        forceReset = true; // We must restore the sentinel!
+        if (commonLen === text.length) {
+          // Text is a prefix of prevStr. They deleted from the end.
+          let deletedCount = prevStr.length - text.length;
+          if (deletedCount >= 50) { // Arbitrary threshold > word length
+            // They bulk deleted the sentinel (e.g. "Select All" + Delete in the OS popup)
+            backspaceCount = Math.max(0, prevStr.length - 100);
+          } else {
+            // Normal backspace into the sentinel
+            backspaceCount = deletedCount;
+          }
+          diffStr = "";
+          forceReset = true;
+        } else {
+          // The invisible sentinel itself was tampered with (e.g. user "Select All" and typed).
+          // Backspace exactly what they typed since the last clear, and insert the entirely new text.
+          backspaceCount = Math.max(0, prevStr.length - 100);
+          diffStr = text;
+          forceReset = true; // We must restore the sentinel!
+        }
       } else {
         backspaceCount = prevStr.length - commonLen;
         diffStr = text.substring(commonLen);
