@@ -145,6 +145,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: 4,
+    zIndex: 100,
+    overflow: 'visible',
   },
   button: {
     height: 40,

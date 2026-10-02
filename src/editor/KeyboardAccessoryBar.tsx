@@ -34,6 +34,7 @@ export function KeyboardAccessoryBar({ stateManager }: KeyboardAccessoryBarProps
         horizontal 
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
+        style={{ overflow: 'visible' }}
         contentContainerStyle={styles.scrollContent}
       >
         <SimpleButton label="Tab" onPress={handleTab} />
@@ -113,11 +114,13 @@ const styles = StyleSheet.create({
     borderTopColor: '#333',
     justifyContent: 'center',
     zIndex: 10,
+    overflow: 'visible',
   },
   scrollContent: {
     paddingHorizontal: 8,
     alignItems: 'center',
     flexDirection: 'row',
+    overflow: 'visible',
   },
   button: {
     height: 40,

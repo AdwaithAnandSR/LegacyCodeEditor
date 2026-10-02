@@ -1,0 +1,11 @@
+--- src/editor/SwipeButton.tsx
++++ src/editor/SwipeButton.tsx
+@@ -100,6 +100,8 @@
+     alignItems: 'center',
+     justifyContent: 'center',
+     marginHorizontal: 4,
++    zIndex: 100,
++    overflow: 'visible',
+   },
+   button: {
+     height: 40,

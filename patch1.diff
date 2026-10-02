@@ -1,0 +1,24 @@
+--- src/editor/KeyboardAccessoryBar.tsx
++++ src/editor/KeyboardAccessoryBar.tsx
+@@ -34,6 +34,7 @@
+         horizontal 
+         showsHorizontalScrollIndicator={false}
+         keyboardShouldPersistTaps="always"
++        style={{ overflow: 'visible' }}
+         contentContainerStyle={styles.scrollContent}
+       >
+         <SimpleButton label="Tab" onPress={handleTab} />
+@@ -107,11 +108,13 @@
+     borderTopColor: '#333',
+     justifyContent: 'center',
+     zIndex: 10,
++    overflow: 'visible',
+   },
+   scrollContent: {
+     paddingHorizontal: 8,
+     alignItems: 'center',
+     flexDirection: 'row',
++    overflow: 'visible',
+   },
+   button: {
+     height: 40,
