@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, { SharedValue, 
@@ -14,12 +14,13 @@ interface SwipeButtonProps {
   label: string;
   onTap: () => void;
   options: { label: string; onSelect: () => void }[];
+  width?: number;
 }
 
 const OPTION_WIDTH = 40;
 const OPTION_HEIGHT = 44;
 
-export function SwipeButton({ label, onTap, options }: SwipeButtonProps) {
+export function SwipeButton({ label, onTap, options, width }: SwipeButtonProps) {
   const isPressed = useSharedValue(false);
   const showPopup = useSharedValue(false);
   const activeIndex = useSharedValue(-1);
@@ -60,7 +61,7 @@ export function SwipeButton({ label, onTap, options }: SwipeButtonProps) {
       // Local x is relative to the button
       // We want to map it to the popup
       // The popup is shifted left by (popupWidth - buttonWidth) / 2
-      const buttonWidth = 44; // approximate
+      const buttonWidth = width ?? 44;
       const xInPopup = e.x + (popupWidth - buttonWidth) / 2;
       
       // y needs to be negative (above the button)
@@ -107,7 +108,7 @@ export function SwipeButton({ label, onTap, options }: SwipeButtonProps) {
   });
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, width !== undefined && { width }]}>
       {/* Popup Menu */}
       <Animated.View style={[styles.popup, popupStyle]}>
         {options.map((opt, i) => (
@@ -116,7 +117,13 @@ export function SwipeButton({ label, onTap, options }: SwipeButtonProps) {
       </Animated.View>
 
       <GestureDetector gesture={gesture}>
-        <Animated.View style={[styles.button, buttonStyle]}>
+        <Animated.View
+          style={[
+            styles.button,
+            buttonStyle,
+            width !== undefined && { width: '100%', minWidth: width },
+          ]}
+        >
           <Text style={styles.label}>{label}</Text>
         </Animated.View>
       </GestureDetector>
@@ -144,14 +151,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 4,
     zIndex: 100,
     overflow: 'visible',
   },
   button: {
-    height: 40,
-    minWidth: 40,
-    paddingHorizontal: 8,
+    height: 36,
+    paddingHorizontal: 4,
     borderRadius: 6,
     backgroundColor: '#2D2D2D',
     justifyContent: 'center',
@@ -161,7 +166,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: '#D4D4D4',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     fontFamily: EDITOR_THEME.fontFamily,
   },
