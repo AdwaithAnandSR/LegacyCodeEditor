@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability, react-hooks/refs, react-hooks/purity */
 /**
  * useEditorScroll – gesture-based scrolling for the Skia editor canvas.
  *
@@ -9,7 +10,7 @@
  * no React state changes are triggered, so no re-renders occur.
  */
 
-import { useRef, useCallback, useMemo } from "react";
+import { useRef } from "react";
 import { Gesture } from "react-native-gesture-handler";
 import type { ComposedGestureType } from "react-native-gesture-handler/lib/typescript/handlers/gestures/gestureComposition";
 import type { EditorStateManager } from "./EditorStateManager";

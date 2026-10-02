@@ -81,6 +81,7 @@ export class EditorStateManager {
   // ── Viewport (set by the canvas on layout) ───────────────────────────────
   viewport: ViewportInfo = { height: 0, width: 0 };
   isKeyboardVisible: boolean = false;
+  keyboardHeight: number = 0;
   charWidth: number = 0;
 
   // ── Invalidation callback (set by the Skia layer) ────────────────────────
@@ -439,7 +440,8 @@ export class EditorStateManager {
   }
 
   get maxScrollY(): number {
-    const scrollableHeight = this.totalContentHeight + (this.viewport.height / 2); 
+    const visibleHeight = Math.max(1, this.viewport.height - this.keyboardHeight);
+    const scrollableHeight = this.totalContentHeight + (visibleHeight / 2) + this.keyboardHeight; 
     return Math.max(0, scrollableHeight - this.viewport.height);
   }
 
@@ -966,25 +968,24 @@ export class EditorStateManager {
     
     // --- Y Scrolling Math ---
     let targetY = this.scrollOffset.y;
+    const visibleHeight = Math.max(1, this.viewport.height - this.keyboardHeight);
     const viewTop = this.scrollOffset.y;
-    const viewBottom = viewTop + this.viewport.height;
+    const viewBottom = viewTop + visibleHeight;
     
     // Only apply typewriter centering if keyboard is visible, we are typing (not tapping/dragging),
     // and the cursor goes beyond 50% of the visible screen height.
-    const isBeyond50 = cursorY + lineHeight > viewTop + this.viewport.height * 0.5;
+    const isBeyond50 = cursorY + lineHeight > viewTop + visibleHeight * 0.5;
     const shouldCenter = forceCenter || (!preventTypewriter && this.isKeyboardVisible && !this.isDraggingSelection && !this.selection && isBeyond50);
     
     if (shouldCenter) {
-      targetY = cursorY - this.viewport.height * EDITOR_THEME.typewriterOffset + lineHeight / 2;
+      targetY = cursorY - visibleHeight * EDITOR_THEME.typewriterOffset + lineHeight / 2;
     } else {
-      const viewTop = this.scrollOffset.y;
-      const viewBottom = viewTop + this.viewport.height;
       const SCROLL_MARGIN_Y = 40;
 
       if (cursorY < viewTop + SCROLL_MARGIN_Y) {
         targetY = cursorY - SCROLL_MARGIN_Y;
       } else if (cursorY + lineHeight > viewBottom - SCROLL_MARGIN_Y) {
-        targetY = cursorY + lineHeight - this.viewport.height + SCROLL_MARGIN_Y;
+        targetY = cursorY + lineHeight - visibleHeight + SCROLL_MARGIN_Y;
       }
     }
 

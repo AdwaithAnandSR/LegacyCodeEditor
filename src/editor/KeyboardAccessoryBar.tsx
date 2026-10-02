@@ -1,15 +1,15 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
   ScrollView,
   TouchableOpacity,
   Text,
-  Platform,
-  UIManager,
   LayoutAnimation,
-  useWindowDimensions,
+  Dimensions,
 } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { SwipeButton } from './SwipeButton';
 import { EDITOR_THEME } from './theme';
 import type { EditorStateManager } from './EditorStateManager';
@@ -257,79 +257,79 @@ export function KeyboardAccessoryBar({
   const [isShiftActive, setIsShiftActive] = useState(false);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
 
-  const { width: windowWidth } = useWindowDimensions();
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
+  const animatedOverlayStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: keyboardHeight.value }],
+  }));
+
+  const [windowWidth, setWindowWidth] = useState(() => Dimensions.get('window').width);
+
+  useEffect(() => {
+    const sub = Dimensions.addEventListener('change', ({ window }) => {
+      setWindowWidth(window.width);
+    });
+    return () => sub?.remove();
+  }, []);
 
   // Each row displays up to 5 items:
   // buttonWidth = Math.floor((windowWidth - totalPadding - totalGaps) / 5)
   // Even if a row has fewer items, each item keeps this exact width.
-  const itemWidth = useMemo(() => {
+  const itemWidth = (() => {
     const totalPadding = HORIZONTAL_PADDING * 2;
     const totalGaps = ITEM_GAP * (VISIBLE_ITEMS_PER_ROW - 1);
     const availableWidth = Math.max(0, windowWidth - totalPadding - totalGaps);
     return Math.floor(availableWidth / VISIBLE_ITEMS_PER_ROW);
-  }, [windowWidth]);
+  })();
 
   // Initialize cycle index based on initialMode
-  const initialIndex = useMemo(() => {
+  const initialIndex = (() => {
     if (initialMode === 'one') return 1;
     if (initialMode === 'hidden') return 2;
     return 0; // 'two'
-  }, [initialMode]);
+  })();
 
   const [cycleIndex, setCycleIndex] = useState(initialIndex);
 
-  const mergedCatalog = useMemo(() => {
+  const mergedCatalog = (() => {
     return customCatalog ? { ...ACCESSORY_CATALOG, ...customCatalog } : ACCESSORY_CATALOG;
-  }, [customCatalog]);
+  })();
 
-  const resolvedRow1 = useMemo(() => {
+  const resolvedRow1 = (() => {
     return row1Items
       .map((item) => (typeof item === 'string' ? mergedCatalog[item] : item))
       .filter((item): item is AccessoryItemConfig => Boolean(item));
-  }, [row1Items, mergedCatalog]);
+  })();
 
-  const resolvedRow2 = useMemo(() => {
+  const resolvedRow2 = (() => {
     return row2Items
       .map((item) => (typeof item === 'string' ? mergedCatalog[item] : item))
       .filter((item): item is AccessoryItemConfig => Boolean(item));
-  }, [row2Items, mergedCatalog]);
+  })();
 
-  const insertText = useCallback(
-    (text: string) => {
-      stateManager.insertAtCursor(text);
-    },
-    [stateManager]
-  );
+  const insertText = (text: string) => {
+    stateManager.insertAtCursor(text);
+  };
 
-  const insertPair = useCallback(
-    (open: string, close: string) => {
-      stateManager.insertPair(open, close);
-    },
-    [stateManager]
-  );
+  const insertPair = (open: string, close: string) => {
+    stateManager.insertPair(open, close);
+  };
 
-  const actionContext: AccessoryButtonActionContext = useMemo(
-    () => ({
-      stateManager,
-      insertText,
-      insertPair,
-      isShiftActive,
-      setIsShiftActive,
-      isCtrlActive,
-      setIsCtrlActive,
-    }),
-    [stateManager, insertText, insertPair, isShiftActive, isCtrlActive]
-  );
+  const actionContext: AccessoryButtonActionContext = {
+    stateManager,
+    insertText,
+    insertPair,
+    isShiftActive,
+    setIsShiftActive,
+    isCtrlActive,
+    setIsCtrlActive,
+  };
 
-  const cycleVisibility = useCallback(() => {
+  const cycleVisibility = () => {
     const nextIndex = (cycleIndex + 1) % CYCLE_STEPS.length;
-    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-      UIManager.setLayoutAnimationEnabledExperimental(true);
-    }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setCycleIndex(nextIndex);
     onModeChange?.(CYCLE_STEPS[nextIndex].mode);
-  }, [cycleIndex, onModeChange]);
+  };
 
   const currentStep = CYCLE_STEPS[cycleIndex];
   const mode = currentStep.mode;
@@ -343,8 +343,8 @@ export function KeyboardAccessoryBar({
       {barHeight > 0 && <View style={{ height: barHeight }} />}
 
       {/* Floating overlay container to avoid hit-test clipping on iOS/Android */}
-      <View
-        style={[styles.floatingOverlay, { height: barHeight + 52 }]}
+      <Animated.View
+        style={[styles.floatingOverlay, { height: barHeight + 52 }, animatedOverlayStyle]}
         pointerEvents="box-none"
       >
         {/* Rounded floating toggle button */}
@@ -395,7 +395,7 @@ export function KeyboardAccessoryBar({
             )}
           </View>
         )}
-      </View>
+      </Animated.View>
     </>
   );
 }

@@ -258,7 +258,6 @@ function drawEditorToCanvas(
     lineHeight,
     gutterWidth,
     contentPaddingLeft,
-    contentPaddingTop,
     cursorWidth,
   } = EDITOR_THEME;
 

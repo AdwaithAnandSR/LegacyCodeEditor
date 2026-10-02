@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { EditorCanvas } from "@/editor";
 
+
 const SAMPLE_CODE = `// Welcome to LegacyCodeEditor
 
 function fibonacci(n: number): number {
@@ -15,9 +16,6 @@ const result = fibonacci(10);
 console.log("Fibonacci(10) =", result);
 
 `;
-
-import { Platform } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 export default function EditorScreen() {
   return (
@@ -31,12 +29,7 @@ export default function EditorScreen() {
         </View>
 
         {/* Editor takes all remaining space */}
-        <KeyboardAvoidingView 
-          style={styles.editorContainer} 
-          behavior="padding"
-        >
           <EditorCanvas initialContent={SAMPLE_CODE} />
-        </KeyboardAvoidingView>
       </SafeAreaView>
     </GestureHandlerRootView>
   );

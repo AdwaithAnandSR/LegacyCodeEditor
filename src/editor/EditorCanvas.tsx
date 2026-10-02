@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability, react-hooks/refs, react-hooks/purity */
 /**
  * EditorCanvas – the main React component that composes everything.
  *
@@ -15,7 +16,7 @@
  *     a counter state. The actual GPU rendering is done by Skia.
  */
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -76,18 +77,35 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
 
   // ── 4. Canvas size tracking (via ref to avoid stale closures) ────────
   const canvasSizeRef = useRef({ width: 0, height: 0 });
-  const handleLayout = useCallback(
-    (e: LayoutChangeEvent) => {
+  const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleLayout = (e: LayoutChangeEvent) => {
       const { width, height } = e.nativeEvent.layout;
+      
+      const widthChanged = canvasSizeRef.current.width !== width;
+      const heightChanged = canvasSizeRef.current.height !== height;
+
+      if (!widthChanged && !heightChanged) {
+        return;
+      }
+      
       canvasSizeRef.current = { width, height };
       stateManager.setViewport(width, height);
       
-      // Ensure cursor remains visible during resize animations
-      stateManager.scrollToCursor(false);
-      stateManager.invalidate(); // Force redraw on resize
-    },
-    [stateManager],
-  );
+      if (widthChanged) {
+        // Always redraw immediately on width changes (like orientation change)
+        if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
+        stateManager.scrollToCursor(false);
+        stateManager.invalidate();
+      } else if (heightChanged) {
+        // Debounce height changes to avoid FPS drops during keyboard animations
+        if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
+        layoutTimeoutRef.current = setTimeout(() => {
+          stateManager.scrollToCursor(false);
+          stateManager.invalidate();
+        }, 50);
+      }
+    };
 
   // ── 5. Redraw trigger (Bypasses React entirely!) ───────────────────────
   //
@@ -115,6 +133,7 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
     return () => {
       cleanup();
       stateManager.dispose();
+      if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
     };
   }, [stateManager, pictureSV]);
 

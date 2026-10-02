@@ -1,0 +1,695 @@
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/app/index.tsx
+   1:40  warning  '/data/data/com.termux/files/home/LegacyCodeEditor/node_modules/react-native/index.js' imported multiple times  import/no-duplicates
+  19:1   warning  Import in body of module; reorder to top                                                                        import/first
+  19:10  warning  'Platform' is defined but never used                                                                            @typescript-eslint/no-unused-vars
+  19:26  warning  '/data/data/com.termux/files/home/LegacyCodeEditor/node_modules/react-native/index.js' imported multiple times  import/no-duplicates
+  20:1   warning  Import in body of module; reorder to top                                                                        import/first
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx
+   59:8   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:59:8
+  57 |   // ── 1. State manager (mutable, imperative, never triggers re-renders) ──
+  58 |   const stateRef = useRef<EditorStateManager | null>(null);
+> 59 |   if (!stateRef.current) {
+     |        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  60 |     stateRef.current = new EditorStateManager();
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+
+To initialize a ref only once, check that the ref is null with the pattern `if (ref.current == null) { ref.current = ... }`                                                                              react-hooks/refs
+   61:5   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:61:5
+  59 |   if (!stateRef.current) {
+  60 |     stateRef.current = new EditorStateManager();
+> 61 |     stateRef.current.loadContent(initialContent);
+     |     ^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  62 |   }
+  63 |   const stateManager = stateRef.current;
+  64 |                                                                                                                                                                                                                                                                                       react-hooks/refs
+   61:5   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:61:5
+  59 |   if (!stateRef.current) {
+  60 |     stateRef.current = new EditorStateManager();
+> 61 |     stateRef.current.loadContent(initialContent);
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  62 |   }
+  63 |   const stateManager = stateRef.current;
+  64 |                                                                                                                                                                                                                                                                           react-hooks/refs
+   63:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:63:24
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+> 63 |   const stateManager = stateRef.current;
+     |                        ^^^^^^^^^^^^^^^^ Cannot update ref during render
+  64 |
+  65 |   // ── 2. Load fonts ──────────────────────────────────────────────────────
+  66 |   const fontProvider = useFonts({                                                                                                                                                                                                                                                             react-hooks/refs
+   63:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:63:24
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+> 63 |   const stateManager = stateRef.current;
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  64 |
+  65 |   // ── 2. Load fonts ──────────────────────────────────────────────────────
+  66 |   const fontProvider = useFonts({                                                                                                                                                                                                                                                       react-hooks/refs
+   63:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:63:24
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+> 63 |   const stateManager = stateRef.current;
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  64 |
+  65 |   // ── 2. Load fonts ──────────────────────────────────────────────────────
+  66 |   const fontProvider = useFonts({                                                                                                                                                                                                                                                       react-hooks/refs
+   63:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:63:24
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+> 63 |   const stateManager = stateRef.current;
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  64 |
+  65 |   // ── 2. Load fonts ──────────────────────────────────────────────────────
+  66 |   const fontProvider = useFonts({                                                                                                                                                                                                                                                       react-hooks/refs
+   63:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:63:24
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+> 63 |   const stateManager = stateRef.current;
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  64 |
+  65 |   // ── 2. Load fonts ──────────────────────────────────────────────────────
+  66 |   const fontProvider = useFonts({                                                                                                                                                                                                                                                       react-hooks/refs
+   63:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:63:24
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+> 63 |   const stateManager = stateRef.current;
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  64 |
+  65 |   // ── 2. Load fonts ──────────────────────────────────────────────────────
+  66 |   const fontProvider = useFonts({                                                                                                                                                                                                                                                       react-hooks/refs
+   63:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:63:24
+  61 |     stateRef.current.loadContent(initialContent);
+  62 |   }
+> 63 |   const stateManager = stateRef.current;
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  64 |
+  65 |   // ── 2. Load fonts ──────────────────────────────────────────────────────
+  66 |   const fontProvider = useFonts({                                                                                                                                                                                                                                                       react-hooks/refs
+   72:23  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:72:23
+  70 |   // ── 3. Build renderer resources once fonts are ready ───────────────────
+  71 |   const resourcesRef = useRef<SkiaRendererResources | null>(null);
+> 72 |   if (fontProvider && !resourcesRef.current) {
+     |                       ^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  73 |     resourcesRef.current = createRendererResources(fontProvider);
+  74 |     stateManager.charWidth = resourcesRef.current.charWidth;
+  75 |   }                                                                                                                               react-hooks/refs
+   72:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:72:24
+  70 |   // ── 3. Build renderer resources once fonts are ready ───────────────────
+  71 |   const resourcesRef = useRef<SkiaRendererResources | null>(null);
+> 72 |   if (fontProvider && !resourcesRef.current) {
+     |                        ^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  73 |     resourcesRef.current = createRendererResources(fontProvider);
+  74 |     stateManager.charWidth = resourcesRef.current.charWidth;
+  75 |   }
+
+To initialize a ref only once, check that the ref is null with the pattern `if (ref.current == null) { ref.current = ... }`  react-hooks/refs
+   74:30  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:74:30
+  72 |   if (fontProvider && !resourcesRef.current) {
+  73 |     resourcesRef.current = createRendererResources(fontProvider);
+> 74 |     stateManager.charWidth = resourcesRef.current.charWidth;
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  75 |   }
+  76 |
+  77 |   // ── 4. Canvas size tracking (via ref to avoid stale closures) ────────                                                                                                                                                                                    react-hooks/refs
+  147:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:147:24
+  145 |
+  146 |   // ── 8. Loading state ──────────────────────────────────────────────────
+> 147 |   if (!fontProvider || !resourcesRef.current) {
+      |                        ^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  148 |     return <View style={styles.container} />;
+  149 |   }
+  150 |                                                                                                                                                                                                                                                                          react-hooks/refs
+  147:25  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorCanvas.tsx:147:25
+  145 |
+  146 |   // ── 8. Loading state ──────────────────────────────────────────────────
+> 147 |   if (!fontProvider || !resourcesRef.current) {
+      |                         ^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  148 |     return <View style={styles.container} />;
+  149 |   }
+  150 |
+
+To initialize a ref only once, check that the ref is null with the pattern `if (ref.current == null) { ref.current = ... }`                                                                                                                                             react-hooks/refs
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/EditorStateManager.ts
+   18:54  warning  'CursorPosition' is defined but never used        @typescript-eslint/no-unused-vars
+  662:11  warning  'isZeroWidth' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  970:11  warning  'viewBottom' is assigned a value but never used   @typescript-eslint/no-unused-vars
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx
+   17:5   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:17:5
+  15 |   
+  16 |   if (!selection || stateManager.isDraggingSelection || !stateManager.floatingMenuVisible || stateManager.isFingerScrolling || stateManager.isMomentumScrolling()) {
+> 17 |     stateManager.floatingMenuBounds = null;
+     |     ^^^^^^^^^^^^ value cannot be modified
+  18 |     return null;
+  19 |   }
+  20 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react-hooks/immutability
+   38:5   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:38:5
+  36 |     stateManager.engine.deleteText(normSel);
+  37 |     stateManager.setCursor(normSel.startLine, normSel.startColumn);
+> 38 |     stateManager.selection = null;
+     |     ^^^^^^^^^^^^ `stateManager` cannot be modified
+  39 |     stateManager.clearOSBuffer?.();
+  40 |     stateManager.invalidate();
+  41 |   };                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             react-hooks/immutability
+   59:5   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:59:5
+  57 |     
+  58 |     stateManager.setCursor(newPos.line, newPos.column);
+> 59 |     stateManager.selection = null;
+     |     ^^^^^^^^^^^^ `stateManager` cannot be modified
+  60 |     stateManager.floatingMenuVisible = false; // Hide menu after pasting
+  61 |     stateManager.clearOSBuffer?.();
+  62 |     stateManager.invalidate();                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             react-hooks/immutability
+   92:5   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:92:5
+  90 |   // Don't render if completely off screen vertically (at the bottom)
+  91 |   if (y > stateManager.viewport.height - 20) {
+> 92 |     stateManager.floatingMenuBounds = null; // Ensure bounds are cleared if we don't render
+     |     ^^^^^^^^^^^^ value cannot be modified
+  93 |     return null;
+  94 |   }
+  95 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/immutability
+   99:3   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:99:3
+   97 |
+   98 |   // We synchronously update the bounds so the next tap can immediately be checked
+>  99 |   stateManager.floatingMenuBounds = {
+      |   ^^^^^^^^^^^^ value cannot be modified
+  100 |     x, y,
+  101 |     width: sizeRef.current.width,
+  102 |     height: sizeRef.current.height                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react-hooks/immutability
+   99:37  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:99:37
+   97 |
+   98 |   // We synchronously update the bounds so the next tap can immediately be checked
+>  99 |   stateManager.floatingMenuBounds = {
+      |                                     ^
+> 100 |     x, y,
+      | ^^^^^^^^^
+> 101 |     width: sizeRef.current.width,
+      | ^^^^^^^^^
+> 102 |     height: sizeRef.current.height
+      | ^^^^^^^^^
+> 103 |   };
+      | ^^^^ Cannot access ref value during render
+  104 |
+  105 |   return (
+  106 |     <Animated.View                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 react-hooks/refs
+  101:12  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:101:12
+   99 |   stateManager.floatingMenuBounds = {
+  100 |     x, y,
+> 101 |     width: sizeRef.current.width,
+      |            ^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  102 |     height: sizeRef.current.height
+  103 |   };
+  104 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react-hooks/refs
+  102:13  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:102:13
+  100 |     x, y,
+  101 |     width: sizeRef.current.width,
+> 102 |     height: sizeRef.current.height
+      |             ^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  103 |   };
+  104 |
+  105 |   return (                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/refs
+  110:17  error  Error: Cannot modify local variables after render completes
+
+This argument is a function which may reassign or mutate `stateManager` after render, which can cause inconsistent behavior on subsequent renders. Consider using state instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:110:17
+  108 |       exiting={FadeOut.duration(100)}
+  109 |       style={[styles.container, { top: y, left: x }]}
+> 110 |       onLayout={(e) => {
+      |                 ^^^^^^^^
+> 111 |         sizeRef.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 112 |         stateManager.floatingMenuBounds = { x, y, width: sizeRef.current.width, height: sizeRef.current.height };
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 113 |       }}
+      | ^^^^^^^^ This function may (indirectly) reassign or modify `stateManager` after render
+  114 |     >
+  115 |       {!isSelectionEmpty && (
+  116 |         <>
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:112:9
+  110 |       onLayout={(e) => {
+  111 |         sizeRef.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
+> 112 |         stateManager.floatingMenuBounds = { x, y, width: sizeRef.current.width, height: sizeRef.current.height };
+      |         ^^^^^^^^^^^^ This modifies `stateManager`
+  113 |       }}
+  114 |     >
+  115 |       {!isSelectionEmpty && (  react-hooks/immutability
+  112:9   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/FloatingMenu.tsx:112:9
+  110 |       onLayout={(e) => {
+  111 |         sizeRef.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
+> 112 |         stateManager.floatingMenuBounds = { x, y, width: sizeRef.current.width, height: sizeRef.current.height };
+      |         ^^^^^^^^^^^^ `stateManager` cannot be modified
+  113 |       }}
+  114 |     >
+  115 |       {!isSelectionEmpty && (                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/immutability
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/KeyboardAccessoryBar.tsx
+  8:3  warning  'Platform' is defined but never used  @typescript-eslint/no-unused-vars
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/SkiaRenderer.ts
+  261:5  warning  'contentPaddingTop' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorInput.ts
+  56:3  error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorInput.ts:56:3
+  54 |
+  55 |   // Expose to state manager so external actions (like pasting from a menu) can sync the OS buffer
+> 56 |   stateManager.clearOSBuffer = clearInput;
+     |   ^^^^^^^^^^^^ value cannot be modified
+  57 |
+  58 |   const handleTextChange = (text: string) => {
+  59 |       if (text === "") {  react-hooks/immutability
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts
+   50:14  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:50:14
+  48 |
+  49 |   const panGesture = Gesture.Pan()
+> 50 |     .onBegin((e) => {
+     |              ^^^^^^^^
+> 51 |       wasScrolling.current = stateManager.isMomentumScrolling();
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 52 |       stateManager.stopMomentumScroll();
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 53 |       const handle = stateManager.getHandleAt(e.x, e.y);
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 54 |       if (handle) {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 55 |         stateManager.activeHandle = handle;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 56 |       }
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 57 |     })
+     | ^^^^^^ Passing a ref to a function may read its value during render
+  58 |     .onStart((e) => {
+  59 |       gestureOwner.current = 'pan';
+  60 |       if (stateManager.activeHandle) {                           react-hooks/refs
+   55:9   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:55:9
+  53 |       const handle = stateManager.getHandleAt(e.x, e.y);
+  54 |       if (handle) {
+> 55 |         stateManager.activeHandle = handle;
+     |         ^^^^^^^^^^^^ `stateManager` cannot be modified
+  56 |       }
+  57 |     })
+  58 |     .onStart((e) => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/immutability
+   58:14  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:58:14
+  56 |       }
+  57 |     })
+> 58 |     .onStart((e) => {
+     |              ^^^^^^^^
+> 59 |       gestureOwner.current = 'pan';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 60 |       if (stateManager.activeHandle) {
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 70 |       frozenY.current = 0;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 71 |     })
+     | ^^^^^^ Passing a ref to a function may read its value during render
+  72 |     .onUpdate((e) => {
+  73 |       if (stateManager.activeHandle) {
+  74 |         stateManager.handleHandleDrag(e.x, e.y);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-hooks/refs
+   61:9   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:61:9
+  59 |       gestureOwner.current = 'pan';
+  60 |       if (stateManager.activeHandle) {
+> 61 |         stateManager.isDraggingSelection = true;
+     |         ^^^^^^^^^^^^ `stateManager` cannot be modified
+  62 |         return;
+  63 |       }
+  64 |       stateManager.isFingerScrolling = true;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-hooks/immutability
+   72:15  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:72:15
+   70 |       frozenY.current = 0;
+   71 |     })
+>  72 |     .onUpdate((e) => {
+      |               ^^^^^^^^
+>  73 |       if (stateManager.activeHandle) {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  74 |         stateManager.handleHandleDrag(e.x, e.y);
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 103 |       stateManager.invalidate();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 104 |     })
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  105 |     .onEnd((e) => {
+  106 |       if (stateManager.activeHandle) {
+  107 |         stateManager.activeHandle = null;                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/refs
+   99:7   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:99:7
+   97 |         : panStartX.current - activeTranslationX;
+   98 |
+>  99 |       stateManager.scrollOffset = {
+      |       ^^^^^^^^^^^^ `stateManager` cannot be modified
+  100 |         x: Math.max(0, Math.min(stateManager.maxScrollX, newX)),
+  101 |         y: Math.max(0, Math.min(stateManager.maxScrollY, newY)),
+  102 |       };                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      react-hooks/immutability
+  105:12  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:105:12
+  103 |       stateManager.invalidate();
+  104 |     })
+> 105 |     .onEnd((e) => {
+      |            ^^^^^^^^
+> 106 |       if (stateManager.activeHandle) {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 107 |         stateManager.activeHandle = null;
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 115 |       stateManager.startMomentumScroll(velX, velY);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 116 |     })
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  117 |     .onFinalize(() => {
+  118 |       if (gestureOwner.current === 'pan') {
+  119 |         if (stateManager.activeHandle) {                                                                                                                                                                                                                                                                                                                                                                                                                       react-hooks/refs
+  107:9   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:107:9
+  105 |     .onEnd((e) => {
+  106 |       if (stateManager.activeHandle) {
+> 107 |         stateManager.activeHandle = null;
+      |         ^^^^^^^^^^^^ `stateManager` cannot be modified
+  108 |         stateManager.isDraggingSelection = false;
+  109 |         stateManager.invalidate();
+  110 |         return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          react-hooks/immutability
+  117:17  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:117:17
+  115 |       stateManager.startMomentumScroll(velX, velY);
+  116 |     })
+> 117 |     .onFinalize(() => {
+      |                 ^^^^^^^
+> 118 |       if (gestureOwner.current === 'pan') {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 119 |         if (stateManager.activeHandle) {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 120 |           stateManager.activeHandle = null;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 121 |           stateManager.isDraggingSelection = false;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 122 |           stateManager.invalidate();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 123 |         }
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 124 |         gestureOwner.current = null;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 125 |       }
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 126 |     })
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  127 |     .minDistance(5)
+  128 |     .runOnJS(true);
+  129 |  react-hooks/refs
+  120:11  error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:120:11
+  118 |       if (gestureOwner.current === 'pan') {
+  119 |         if (stateManager.activeHandle) {
+> 120 |           stateManager.activeHandle = null;
+      |           ^^^^^^^^^^^^ `stateManager` cannot be modified
+  121 |           stateManager.isDraggingSelection = false;
+  122 |           stateManager.invalidate();
+  123 |         }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             react-hooks/immutability
+  132:14  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:132:14
+  130 |   const selectionPanGesture = Gesture.Pan()
+  131 |     .activateAfterLongPress(300)
+> 132 |     .onStart((e) => {
+      |              ^^^^^^^^
+> 133 |       gestureOwner.current = 'selection';
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 134 |       wasScrolling.current = stateManager.isMomentumScrolling();
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 155 |       stateManager.handleSelectionStart(e.x, e.y);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 156 |     })
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  157 |     .onUpdate((e) => {
+  158 |       if (!stateManager.isDraggingSelection) return;
+  159 |                                                                                                                                                                                                                                                                                                                                                                             react-hooks/refs
+  139:9   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:139:9
+  137 |       const handle = stateManager.getHandleAt(e.x, e.y);
+  138 |       if (handle) {
+> 139 |         stateManager.activeHandle = handle;
+      |         ^^^^^^^^^^^^ `stateManager` cannot be modified
+  140 |         stateManager.isDraggingSelection = true;
+  141 |         return;
+  142 |       }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/immutability
+  168:9   error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:168:9
+  166 |     .onEnd(() => {
+  167 |       if (stateManager.activeHandle) {
+> 168 |         stateManager.activeHandle = null;
+      |         ^^^^^^^^^^^^ `stateManager` cannot be modified
+  169 |         stateManager.isDraggingSelection = false;
+  170 |         stateManager.invalidate();
+  171 |         return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-hooks/immutability
+  175:17  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:175:17
+  173 |       stateManager.handleSelectionEnd();
+  174 |     })
+> 175 |     .onFinalize(() => {
+      |                 ^^^^^^^
+> 176 |       if (gestureOwner.current === 'selection') {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 177 |         if (stateManager.activeHandle) {
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 185 |       }
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 186 |     })
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  187 |     .runOnJS(true);
+  188 |
+  189 |   const startedInMenu = useRef(false);                                                                                                                                                                                                                                                                                                                                                                                                                                                          react-hooks/refs
+  178:11  error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:178:11
+  176 |       if (gestureOwner.current === 'selection') {
+  177 |         if (stateManager.activeHandle) {
+> 178 |           stateManager.activeHandle = null;
+      |           ^^^^^^^^^^^^ `stateManager` cannot be modified
+  179 |           stateManager.isDraggingSelection = false;
+  180 |           stateManager.invalidate();
+  181 |         } else {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/immutability
+  194:14  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:194:14
+  192 |
+  193 |   const tapGesture = Gesture.Tap()
+> 194 |     .onBegin((e) => {
+      |              ^^^^^^^^
+> 195 |       startedInMenu.current = stateManager.isPointInFloatingMenu(e.x, e.y);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 196 |       startedOnHandle.current = !!stateManager.getHandleAt(e.x, e.y);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 197 |       wasScrolling.current = stateManager.isMomentumScrolling();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 198 |       stateManager.stopMomentumScroll();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 199 |     })
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  200 |     .onEnd((e) => {
+  201 |       if (startedInMenu.current) return;
+  202 |       if (!wasScrolling.current) {                                                                                                           react-hooks/refs
+  200:12  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:200:12
+  198 |       stateManager.stopMomentumScroll();
+  199 |     })
+> 200 |     .onEnd((e) => {
+      |            ^^^^^^^^
+> 201 |       if (startedInMenu.current) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 202 |       if (!wasScrolling.current) {
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 223 |       }
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 224 |     })
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  225 |     .runOnJS(true);
+  226 |
+  227 |   const gesture = Gesture.Exclusive(selectionPanGesture, panGesture, tapGesture);                                                                                                                                                                                                                                                                                                                                                                                                                                                                 react-hooks/refs
+  204:11  error  Error: This value cannot be modified
+
+Modifying component props or hook arguments is not allowed. Consider using a local variable instead.
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:204:11
+  202 |       if (!wasScrolling.current) {
+  203 |         if (startedOnHandle.current) {
+> 204 |           stateManager.floatingMenuVisible = true;
+      |           ^^^^^^^^^^^^ `stateManager` cannot be modified
+  205 |           stateManager.invalidate();
+  206 |           return;
+  207 |         }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-hooks/immutability
+  209:21  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/data/data/com.termux/files/home/LegacyCodeEditor/src/editor/useEditorScroll.ts:209:21
+  207 |         }
+  208 |
+> 209 |         const now = Date.now();
+      |                     ^^^^^^^^^^ Cannot call impure function
+  210 |         const dx = Math.abs(e.x - lastTap.current.x);
+  211 |         const dy = Math.abs(e.y - lastTap.current.y);
+  212 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      react-hooks/purity
+
+✖ 55 problems (45 errors, 10 warnings)
+  0 errors and 3 warnings potentially fixable with the `--fix` option.
+

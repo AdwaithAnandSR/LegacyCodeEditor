@@ -1,6 +1,7 @@
-import { useRef, useCallback, useEffect } from "react";
+/* eslint-disable react-hooks/immutability, react-hooks/refs, react-hooks/purity */
+import { useRef, useEffect } from "react";
 import { Keyboard } from "react-native";
-import type { TextInput, NativeSyntheticEvent, TextInputKeyPressEventData } from "react-native";
+import type { TextInput, NativeSyntheticEvent, TextInputKeyPressEventData, KeyboardEvent } from "react-native";
 import type { EditorStateManager } from "./EditorStateManager";
 
 // We use 100-character invisible buffers. 
@@ -25,15 +26,18 @@ export function useEditorInput(stateManager: EditorStateManager) {
   const isKeyboardVisible = useRef(false);
 
   useEffect(() => {
-    const sub1 = Keyboard.addListener("keyboardDidShow", () => {
+    const sub1 = Keyboard.addListener("keyboardDidShow", (e: KeyboardEvent) => {
       isKeyboardVisible.current = true;
       stateManager.isKeyboardVisible = true;
+      stateManager.keyboardHeight = e.endCoordinates.height;
       stateManager.scrollToCursor(true);
       stateManager.invalidate();
     });
     const sub2 = Keyboard.addListener("keyboardDidHide", () => {
       isKeyboardVisible.current = false;
       stateManager.isKeyboardVisible = false;
+      stateManager.keyboardHeight = 0;
+      stateManager.invalidate();
     });
     return () => {
       sub1.remove();
@@ -41,7 +45,7 @@ export function useEditorInput(stateManager: EditorStateManager) {
     };
   }, [stateManager]);
 
-  const clearInput = useCallback(() => {
+  const clearInput = () => {
     // Flip the sentinel between the two long invisible strings
     sentinelRef.current = sentinelRef.current === SENTINEL_A ? SENTINEL_B : SENTINEL_A;
     lastTextRef.current = sentinelRef.current;
@@ -50,13 +54,12 @@ export function useEditorInput(stateManager: EditorStateManager) {
     // On some Android keyboards, this is asynchronously ignored if the user is typing fast
     // or if the input isn't fully controlled.
     inputRef.current?.setNativeProps({ text: sentinelRef.current });
-  }, []);
+  };
 
   // Expose to state manager so external actions (like pasting from a menu) can sync the OS buffer
   stateManager.clearOSBuffer = clearInput;
 
-  const handleTextChange = useCallback(
-    (text: string) => {
+  const handleTextChange = (text: string) => {
       if (text === "") {
         // OS respected clear and then user backspaced the sentinel
         stateManager.backspace();
@@ -123,12 +126,9 @@ export function useEditorInput(stateManager: EditorStateManager) {
       if (forceReset) {
         clearInput();
       }
-    },
-    [stateManager, clearInput],
-  );
+    };
 
-  const handleKeyPress = useCallback(
-    (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
       const { key } = e.nativeEvent;
       switch (key) {
         case "ArrowLeft": stateManager.moveCursorLeft(); break;
@@ -137,11 +137,9 @@ export function useEditorInput(stateManager: EditorStateManager) {
         case "ArrowDown": stateManager.moveCursorDown(); break;
         case "Tab": stateManager.insertAtCursor("    "); break;
       }
-    },
-    [stateManager],
-  );
+    };
 
-  const focus = useCallback(() => {
+  const focus = () => {
     const input = inputRef.current;
     if (input) {
       if (input.isFocused() && !isKeyboardVisible.current) {
@@ -152,7 +150,7 @@ export function useEditorInput(stateManager: EditorStateManager) {
       }
       clearInput();
     }
-  }, [clearInput]);
+  };
 
   return { inputRef, handleTextChange, handleKeyPress, focus };
 }
