@@ -42,6 +42,7 @@ import { useEditorInput, SENTINEL } from "./useEditorInput";
 import { useEditorScroll } from "./useEditorScroll";
 import { FloatingMenu } from "./FloatingMenu";
 import { EDITOR_THEME } from "./theme";
+import { KeyboardAccessoryBar } from "./KeyboardAccessoryBar";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,33 +132,36 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
 
   // ── 9. Render ─────────────────────────────────────────────────────────
   return (
-    <GestureDetector gesture={gesture}>
-      <View style={styles.container} onLayout={handleLayout}>
-        <Canvas style={StyleSheet.absoluteFill}>
-          <Picture picture={pictureSV} />
-        </Canvas>
+    <View style={{ flex: 1 }}>
+      <GestureDetector gesture={gesture}>
+        <View style={styles.container} onLayout={handleLayout}>
+          <Canvas style={StyleSheet.absoluteFill}>
+            <Picture picture={pictureSV} />
+          </Canvas>
 
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <TextInput
-            ref={inputRef}
-            style={styles.ghostInput}
-            defaultValue={SENTINEL}
-            onChangeText={handleTextChange}
-            onKeyPress={handleKeyPress}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            autoComplete="off"
-            caretHidden={true}
-            multiline={true}
-            blurOnSubmit={false}
-            autoFocus
-          />
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <TextInput
+              ref={inputRef}
+              style={styles.ghostInput}
+              defaultValue={SENTINEL}
+              onChangeText={handleTextChange}
+              onKeyPress={handleKeyPress}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              autoComplete="off"
+              caretHidden={true}
+              multiline={true}
+              blurOnSubmit={false}
+              autoFocus
+            />
+          </View>
+
+          <FloatingMenu stateManager={stateManager} />
         </View>
-
-        <FloatingMenu stateManager={stateManager} />
-      </View>
-    </GestureDetector>
+      </GestureDetector>
+      <KeyboardAccessoryBar stateManager={stateManager} />
+    </View>
   );
 }
 
