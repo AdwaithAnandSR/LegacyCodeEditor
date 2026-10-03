@@ -20,7 +20,6 @@ import {
   StyleSheet,
   View,
   TextInput,
-  InteractionManager,
   type LayoutChangeEvent,
 } from "react-native";
 import {
@@ -60,12 +59,12 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
     // Defer the heavy C++ Nitro initialization (TreeSitter query compilation takes ~50-80ms).
     // Doing this synchronously in useState blocks the JS thread during the React render phase,
     // which starves the UI thread and drops the frame rate to ~13 FPS on startup.
-    const interaction = InteractionManager.runAfterInteractions(() => {
+    const idleHandle = requestIdleCallback(() => {
       const sm = new EditorStateManager();
       sm.loadContent(initialContent);
       setStateManager(sm);
     });
-    return () => interaction.cancel();
+    return () => cancelIdleCallback(idleHandle);
   }, [initialContent]);
 
   if (!stateManager) {

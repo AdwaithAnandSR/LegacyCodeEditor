@@ -7,7 +7,6 @@ import {
   Text,
   LayoutAnimation,
   Dimensions,
-  InteractionManager,
 } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
@@ -262,10 +261,10 @@ export function KeyboardAccessoryBar({
   useEffect(() => {
     // Defer heavy mounting of SwipeButtons and Reanimated worklets 
     // to prevent UI thread starvation and a 30 FPS drop on initial startup.
-    const interaction = InteractionManager.runAfterInteractions(() => {
+    const idleHandle = requestIdleCallback(() => {
       setIsReady(true);
     });
-    return () => interaction.cancel();
+    return () => cancelIdleCallback(idleHandle);
   }, []);
 
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
