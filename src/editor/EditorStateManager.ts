@@ -15,7 +15,7 @@
  * here and only expose that window.
  */
 
-import { createEditorEngine, type EditorEngine, type CursorPosition, type TextRange } from "editor-engine";
+import { createEditorEngine, type EditorEngine, type TextRange } from "editor-engine";
 import { EDITOR_THEME } from "./theme";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -63,8 +63,65 @@ export class EditorStateManager {
   isFingerScrolling: boolean = false;
   _initialWordSelection: TextRange | null = null;
   floatingMenuVisible: boolean = true;
-  floatingMenuBounds: { x: number, y: number, width: number, height: number } | null = null;
+  floatingMenuSize: { width: number; height: number } = { width: 200, height: 40 };
+
+  setFloatingMenuSize(width: number, height: number) {
+    if (this.floatingMenuSize.width === width && this.floatingMenuSize.height === height) return;
+    this.floatingMenuSize = { width, height };
+  }
+
+  getFloatingMenuBounds(): { x: number; y: number; width: number; height: number } | null {
+    const selection = this.selection;
+    if (
+      !selection ||
+      this.isDraggingSelection ||
+      !this.floatingMenuVisible ||
+      this.isFingerScrolling ||
+      this.isMomentumScrolling()
+    ) {
+      return null;
+    }
+
+    const startLine = Math.min(selection.startLine, selection.endLine);
+    const lineY = this.getLineY(startLine);
+    let y = lineY - this.scrollOffset.y - 45;
+    const x = EDITOR_THEME.gutterWidth + EDITOR_THEME.contentPaddingLeft + 20;
+
+    if (y < 10) {
+      const endLine = Math.max(selection.startLine, selection.endLine);
+      const endLineY = this.getLineY(endLine);
+      y = endLineY - this.scrollOffset.y + EDITOR_THEME.lineHeight + 45;
+    }
+
+    if (y < 10) {
+      y = 50;
+    }
+
+    if (this.viewport.height > 0 && y > this.viewport.height - 20) {
+      return null;
+    }
+
+    return {
+      x,
+      y,
+      width: this.floatingMenuSize.width,
+      height: this.floatingMenuSize.height,
+    };
+  }
+
+  get floatingMenuBounds(): { x: number; y: number; width: number; height: number } | null {
+    return this.getFloatingMenuBounds();
+  }
+
   clearOSBuffer?: () => void;
+
+  setClearOSBuffer(fn: (() => void) | undefined) {
+    this.clearOSBuffer = fn;
+  }
+
+  setCharWidth(charWidth: number) {
+    this.charWidth = charWidth;
+  }
 
   getNormalizedSelection(): TextRange | null {
     if (!this.selection || (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn)) return null;
@@ -112,7 +169,9 @@ export class EditorStateManager {
   // ── Public API ───────────────────────────────────────────────────────────
 
   get floatingMenuSnapshot() {
-    return `${this.selection?.startLine},${this.selection?.startColumn},${this.selection?.endLine},${this.selection?.endColumn},${this.isDraggingSelection},${this.isFingerScrolling},${this.isMomentumScrolling()},${this.floatingMenuVisible}`;
+    const sel = this.selection;
+    const selStr = sel ? `${sel.startLine}:${sel.startColumn}-${sel.endLine}:${sel.endColumn}` : "none";
+    return `${selStr},${Math.round(this.scrollOffset.y)},${Math.round(this.scrollOffset.x)},${this.viewport.height},${this.isDraggingSelection},${this.isFingerScrolling},${this.isMomentumScrolling()},${this.floatingMenuVisible}`;
   }
 
   /**
@@ -184,10 +243,46 @@ export class EditorStateManager {
     this.invalidate();
   }
 
+  copy(): string | null {
+    const normSel = this.getNormalizedSelection();
+    if (!normSel) return null;
+    return this.engine.getTextInRange(normSel);
+  }
+
+  cut(): string | null {
+    const normSel = this.getNormalizedSelection();
+    if (!normSel) return null;
+    const text = this.engine.getTextInRange(normSel);
+    this.engine.deleteText(normSel);
+    this.setCursor(normSel.startLine, normSel.startColumn);
+    this.selection = null;
+    this.clearOSBuffer?.();
+    this.invalidate();
+    return text;
+  }
+
+  paste(text: string) {
+    const normSel = this.getNormalizedSelection();
+    let newPos;
+    if (normSel) {
+      newPos = this.engine.replaceText(normSel, text);
+    } else if (this.selection) {
+      newPos = this.engine.insertText(this.selection.startLine, this.selection.startColumn, text);
+    } else {
+      newPos = this.engine.insertText(this.cursorLine, this.cursorColumn, text);
+    }
+    this.setCursor(newPos.line, newPos.column);
+    this.selection = null;
+    this.floatingMenuVisible = false;
+    this.clearOSBuffer?.();
+    this.invalidate();
+  }
+
   undo() {
     this.engine.undo();
     this.selection = null;
     this.setCursor(this.cursorLine, this.cursorColumn);
+    this.clearOSBuffer?.();
     this.resetBlink();
     this.scrollToCursor(true);
     this.invalidate();
@@ -197,6 +292,7 @@ export class EditorStateManager {
     this.engine.redo();
     this.selection = null;
     this.setCursor(this.cursorLine, this.cursorColumn);
+    this.clearOSBuffer?.();
     this.resetBlink();
     this.scrollToCursor(true);
     this.invalidate();
@@ -661,7 +757,6 @@ export class EditorStateManager {
   getHandleAt(canvasX: number, canvasY: number): 'start' | 'end' | null {
     if (!this.selection) return null;
     
-    const isZeroWidth = this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn;
     // Check start handle
     const startX = this.getCursorXFor(this.selection.startColumn);
     const startY = this.getLineY(this.selection.startLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 15; // Center of teardrop
@@ -755,6 +850,10 @@ export class EditorStateManager {
   }
 
   isPositionInSelection(line: number, column: number): boolean {
+    if (!this.selection) return false;
+    if (this.selection.startLine === this.selection.endLine && this.selection.startColumn === this.selection.endColumn) {
+      return line === this.selection.startLine && column === this.selection.startColumn;
+    }
     const sel = this.getNormalizedSelection();
     if (!sel) return false;
     
@@ -765,8 +864,9 @@ export class EditorStateManager {
   }
 
   isPointInFloatingMenu(canvasX: number, canvasY: number): boolean {
-    if (!this.selection || !this.floatingMenuVisible || !this.floatingMenuBounds) return false;
-    const { x, y, width, height } = this.floatingMenuBounds;
+    const bounds = this.getFloatingMenuBounds();
+    if (!bounds) return false;
+    const { x, y, width, height } = bounds;
     return canvasX >= x - 10 && canvasX <= x + width + 10 && 
            canvasY >= y - 10 && canvasY <= y + height + 10;
   }
@@ -859,6 +959,7 @@ export class EditorStateManager {
     };
     this.floatingMenuVisible = true;
     this.setCursor(lineCount, lastLineLength, true);
+    this.clearOSBuffer?.();
     this.scrollToCursor(false, true);
     this.invalidate();
   }

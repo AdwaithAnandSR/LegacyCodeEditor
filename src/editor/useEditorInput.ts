@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/immutability, react-hooks/refs, react-hooks/purity */
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { Keyboard } from "react-native";
 import type { TextInput, NativeSyntheticEvent, TextInputKeyPressEventData, KeyboardEvent } from "react-native";
 import type { EditorStateManager } from "./EditorStateManager";
@@ -14,6 +13,22 @@ const SENTINEL_A = REPEATER_A.repeat(50); // 100 chars
 const SENTINEL_B = REPEATER_B.repeat(50); // 100 chars
 
 export const SENTINEL = SENTINEL_A;
+
+function getSentinelType(str: string): 'A' | 'B' | null {
+  if (str.length === 0) return null;
+  const first = str.charCodeAt(0);
+  if (first === 0x200b) return 'A';
+  if (first === 0x200c) return 'B';
+  return null;
+}
+
+function getSentinelLength(str: string): number {
+  let count = 0;
+  while (count < str.length && (str.charCodeAt(count) === 0x200b || str.charCodeAt(count) === 0x200c)) {
+    count++;
+  }
+  return count;
+}
 
 export function useEditorInput(stateManager: EditorStateManager) {
   const inputRef = useRef<TextInput | null>(null);
@@ -45,7 +60,12 @@ export function useEditorInput(stateManager: EditorStateManager) {
     };
   }, [stateManager]);
 
-  const clearInput = () => {
+  // DO NOT REMOVE THIS useCallback:
+  // clearInput requires a strictly stable reference identity because it is synchronized with the
+  // external imperative EditorStateManager via useEffect below. Without useCallback, every render pass
+  // causes the effect cleanup to execute, unbinding setClearOSBuffer(undefined) and rebinding,
+  // causing lifecycle churn and breaking external buffer clearance during fast typing or menu actions.
+  const clearInput = useCallback(() => {
     // Flip the sentinel between the two long invisible strings
     sentinelRef.current = sentinelRef.current === SENTINEL_A ? SENTINEL_B : SENTINEL_A;
     lastTextRef.current = sentinelRef.current;
@@ -54,10 +74,16 @@ export function useEditorInput(stateManager: EditorStateManager) {
     // On some Android keyboards, this is asynchronously ignored if the user is typing fast
     // or if the input isn't fully controlled.
     inputRef.current?.setNativeProps({ text: sentinelRef.current });
-  };
+  }, []);
 
-  // Expose to state manager so external actions (like pasting from a menu) can sync the OS buffer
-  stateManager.clearOSBuffer = clearInput;
+  useEffect(() => {
+    stateManager.setClearOSBuffer(clearInput);
+    return () => {
+      if (stateManager.clearOSBuffer === clearInput) {
+        stateManager.setClearOSBuffer(undefined);
+      }
+    };
+  }, [stateManager, clearInput]);
 
   const handleTextChange = (text: string) => {
       if (text === "") {
@@ -70,9 +96,9 @@ export function useEditorInput(stateManager: EditorStateManager) {
       let prevStr = lastTextRef.current;
       
       // If the OS ignored our clearInput() asynchronously, it will still use the old sentinel
-      if (text.startsWith(SENTINEL_A) && prevStr.startsWith(SENTINEL_B)) {
-        prevStr = nativeTextRef.current;
-      } else if (text.startsWith(SENTINEL_B) && prevStr.startsWith(SENTINEL_A)) {
+      const textSentinel = getSentinelType(text);
+      const prevSentinel = getSentinelType(prevStr);
+      if (textSentinel && prevSentinel && textSentinel !== prevSentinel) {
         prevStr = nativeTextRef.current;
       }
 
@@ -86,29 +112,35 @@ export function useEditorInput(stateManager: EditorStateManager) {
       let backspaceCount = 0;
       let forceReset = false;
 
-      if (commonLen < 100) {
-        if (commonLen === text.length) {
-          // Text is a prefix of prevStr. They deleted from the end.
-          let deletedCount = prevStr.length - text.length;
-          if (deletedCount >= 50) { // Arbitrary threshold > word length
-            // They bulk deleted the sentinel (e.g. "Select All" + Delete in the OS popup)
-            backspaceCount = Math.max(0, prevStr.length - 100);
-          } else {
-            // Normal backspace into the sentinel
-            backspaceCount = deletedCount;
-          }
-          diffStr = "";
+      const prevSentinelLen = getSentinelLength(prevStr);
+
+      if (commonLen === text.length) {
+        // Text is a prefix of prevStr: user deleted from the end.
+        const deletedCount = prevStr.length - text.length;
+        if (deletedCount >= 50) {
+          // Bulk deleted sentinel in OS popup (e.g. Select All + Cut/Delete)
+          backspaceCount = Math.max(0, prevStr.length - prevSentinelLen);
           forceReset = true;
         } else {
-          // The invisible sentinel itself was tampered with (e.g. user "Select All" and typed).
-          // Backspace exactly what they typed since the last clear, and insert the entirely new text.
-          backspaceCount = Math.max(0, prevStr.length - 100);
-          diffStr = text;
-          forceReset = true; // We must restore the sentinel!
+          // Normal backspace into the sentinel
+          backspaceCount = deletedCount;
+          // Only force reset if sentinel buffer is running low (< 20 chars remaining)
+          if (text.length < 20) {
+            forceReset = true;
+          }
         }
+        diffStr = "";
+      } else if (commonLen < prevSentinelLen) {
+        // The sentinel itself was tampered with (e.g. user selected all and typed new text)
+        backspaceCount = Math.max(0, prevStr.length - prevSentinelLen);
+        diffStr = text.replace(/[\u200B\u200C]/g, "");
+        forceReset = true; // We must restore the sentinel!
       } else {
         backspaceCount = prevStr.length - commonLen;
-        diffStr = text.substring(commonLen);
+        diffStr = text.substring(commonLen).replace(/[\u200B\u200C]/g, "");
+        if (text.length > 500) {
+          forceReset = true;
+        }
       }
 
       // Apply the diff to our engine

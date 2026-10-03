@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/immutability, react-hooks/refs, react-hooks/purity */
-import { useSyncExternalStore, useRef } from 'react';
+import { useSyncExternalStore } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -11,106 +10,46 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
   // Sync with state manager's UI updates
   useSyncExternalStore(stateManager.subscribeUI, () => stateManager.floatingMenuSnapshot);
 
-  const sizeRef = useRef({ width: 200, height: 40 });
+  const bounds = stateManager.getFloatingMenuBounds();
+  if (!bounds) {
+    return null;
+  }
+
   const selection = stateManager.selection;
-  
-  if (!selection || stateManager.isDraggingSelection || !stateManager.floatingMenuVisible || stateManager.isFingerScrolling || stateManager.isMomentumScrolling()) {
-    stateManager.floatingMenuBounds = null;
+  if (!selection) {
     return null;
   }
 
   const handleCopy = async () => {
-    const normSel = stateManager.getNormalizedSelection();
-    if (!normSel) return;
-    const text = stateManager.engine.getTextInRange(normSel);
-    await Clipboard.setStringAsync(text);
-    // Keep selection or clear it, native usually keeps it on copy. Let's keep it.
+    const text = stateManager.copy();
+    if (text) {
+      await Clipboard.setStringAsync(text);
+    }
   };
 
   const handleCut = async () => {
-    const normSel = stateManager.getNormalizedSelection();
-    if (!normSel) return;
-    const text = stateManager.engine.getTextInRange(normSel);
-    await Clipboard.setStringAsync(text);
-    
-    // Engine delete
-    stateManager.engine.deleteText(normSel);
-    stateManager.setCursor(normSel.startLine, normSel.startColumn);
-    stateManager.selection = null;
-    stateManager.clearOSBuffer?.();
-    stateManager.invalidate();
+    const text = stateManager.cut();
+    if (text) {
+      await Clipboard.setStringAsync(text);
+    }
   };
 
   const handlePaste = async () => {
     const text = await Clipboard.getStringAsync();
-    if (!text) return;
-    
-    const normSel = stateManager.getNormalizedSelection();
-    let newPos;
-    
-    if (normSel) {
-      newPos = stateManager.engine.replaceText(normSel, text);
-    } else if (selection) {
-      newPos = stateManager.engine.insertText(selection.startLine, selection.startColumn, text);
-    } else {
-      newPos = stateManager.engine.insertText(stateManager.cursorLine, stateManager.cursorColumn, text);
+    if (text) {
+      stateManager.paste(text);
     }
-    
-    stateManager.setCursor(newPos.line, newPos.column);
-    stateManager.selection = null;
-    stateManager.floatingMenuVisible = false; // Hide menu after pasting
-    stateManager.clearOSBuffer?.();
-    stateManager.invalidate();
   };
-
-  // Compute position above the selection
-  const startLine = Math.min(selection.startLine, selection.endLine);
-  
-  // Base y position (absolute document coordinate)
-  const lineY = stateManager.getLineY(startLine);
-  
-  // Convert to screen coordinate
-  let y = lineY - stateManager.scrollOffset.y - 45; // 45px above the line
-  
-  // Simple X positioning (could be improved to center over selection)
-  const x = EDITOR_THEME.gutterWidth + EDITOR_THEME.contentPaddingLeft + 20;
-
-  // If menu goes above screen, put it below the selection instead
-  if (y < 10) {
-    const endLine = Math.max(selection.startLine, selection.endLine);
-    const endLineY = stateManager.getLineY(endLine);
-    // +45px to clear the teardrop handle which extends ~39px below the text
-    y = endLineY - stateManager.scrollOffset.y + EDITOR_THEME.lineHeight + 45;
-  }
-
-  // If STILL off-screen (e.g. selection start is far above), clamp to top of viewport
-  if (y < 10) {
-    y = 50;
-  }
-
-  // Don't render if completely off screen vertically (at the bottom)
-  if (y > stateManager.viewport.height - 20) {
-    stateManager.floatingMenuBounds = null; // Ensure bounds are cleared if we don't render
-    return null;
-  }
 
   const isSelectionEmpty = selection.startLine === selection.endLine && selection.startColumn === selection.endColumn;
-
-  // We synchronously update the bounds so the next tap can immediately be checked
-  stateManager.floatingMenuBounds = {
-    x, y,
-    width: sizeRef.current.width,
-    height: sizeRef.current.height
-  };
 
   return (
     <Animated.View 
       entering={FadeIn.duration(150)}
       exiting={FadeOut.duration(100)}
-      style={[styles.container, { top: y, left: x }]}
+      style={[styles.container, { top: bounds.y, left: bounds.x }]}
       onLayout={(e) => {
-        sizeRef.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
-        stateManager.floatingMenuBounds = { x, y, width: sizeRef.current.width, height: sizeRef.current.height };
+        stateManager.setFloatingMenuSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height);
       }}
     >
       {!isSelectionEmpty && (
@@ -155,6 +94,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 8,
+    zIndex: 999,
   },
   button: {
     paddingHorizontal: 16,

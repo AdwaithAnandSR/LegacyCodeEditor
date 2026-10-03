@@ -1,10 +1,9 @@
-/* eslint-disable react-hooks/immutability, react-hooks/refs, react-hooks/purity */
 /**
  * EditorCanvas – the main React component that composes everything.
  *
  * This component is thin glue:
- *   1. Initialises the EditorStateManager (via useRef, not state)
- *   2. Loads fonts and creates SkiaRendererResources
+ *   1. Initialises the EditorStateManager (via useState lazy initializer)
+ *   2. Loads fonts and creates SkiaRendererResources (via useMemo)
  *   3. Renders a <Canvas> with a <Picture> for imperative Skia drawing
  *   4. Overlays a hidden <TextInput> for keyboard input
  *   5. Wraps in <GestureDetector> for scroll & tap
@@ -16,7 +15,7 @@
  *     a counter state. The actual GPU rendering is done by Skia.
  */
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -37,7 +36,6 @@ import { EditorStateManager } from "./EditorStateManager";
 import {
   createEditorPicture,
   createRendererResources,
-  type SkiaRendererResources,
 } from "./SkiaRenderer";
 import { useEditorInput, SENTINEL } from "./useEditorInput";
 import { useEditorScroll } from "./useEditorScroll";
@@ -56,12 +54,11 @@ export interface EditorCanvasProps {
 
 export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   // ── 1. State manager (mutable, imperative, never triggers re-renders) ──
-  const stateRef = useRef<EditorStateManager | null>(null);
-  if (!stateRef.current) {
-    stateRef.current = new EditorStateManager();
-    stateRef.current.loadContent(initialContent);
-  }
-  const stateManager = stateRef.current;
+  const [stateManager] = useState(() => {
+    const sm = new EditorStateManager();
+    sm.loadContent(initialContent);
+    return sm;
+  });
 
   // ── 2. Load fonts ──────────────────────────────────────────────────────
   const fontProvider = useFonts({
@@ -69,11 +66,16 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   });
 
   // ── 3. Build renderer resources once fonts are ready ───────────────────
-  const resourcesRef = useRef<SkiaRendererResources | null>(null);
-  if (fontProvider && !resourcesRef.current) {
-    resourcesRef.current = createRendererResources(fontProvider);
-    stateManager.charWidth = resourcesRef.current.charWidth;
-  }
+  // DO NOT REMOVE THIS useMemo:
+  // resources requires a strictly stable object identity because it is a dependency of the primary canvas
+  // lifecycle effect below. Without useMemo, every re-render (layout, orientation, parent update) produces
+  // a new object reference, triggering the effect teardown which executes stateManager.dispose().
+  // That unnecessarily kills the cursor blink interval and Skia invalidation listeners. Additionally,
+  // this prevents repeated measurement of monospace character width via Skia C++ paragraph layout.
+  const resources = useMemo(
+    () => (fontProvider ? createRendererResources(fontProvider) : null),
+    [fontProvider]
+  );
 
   // ── 4. Canvas size tracking (via ref to avoid stale closures) ────────
   const canvasSizeRef = useRef({ width: 0, height: 0 });
@@ -118,12 +120,15 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   );
 
   useEffect(() => {
+    if (resources) {
+      stateManager.setCharWidth(resources.charWidth);
+    }
     const cleanup = stateManager.setInvalidate(() => {
       const size = canvasSizeRef.current;
-      if (resourcesRef.current && size.width > 0 && size.height > 0) {
+      if (resources && size.width > 0 && size.height > 0) {
         pictureSV.value = createEditorPicture(
           stateManager,
-          resourcesRef.current,
+          resources,
           size.width,
           size.height,
         );
@@ -135,7 +140,7 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
       stateManager.dispose();
       if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
     };
-  }, [stateManager, pictureSV]);
+  }, [stateManager, pictureSV, resources]);
 
   // ── 6. Input hook ──────────────────────────────────────────────────────
   const { inputRef, handleTextChange, handleKeyPress, focus } =
@@ -145,7 +150,7 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   const { gesture } = useEditorScroll(stateManager, focus);
 
   // ── 8. Loading state ──────────────────────────────────────────────────
-  if (!fontProvider || !resourcesRef.current) {
+  if (!fontProvider || !resources) {
     return <View style={styles.container} />;
   }
 
