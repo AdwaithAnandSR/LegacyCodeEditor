@@ -261,10 +261,10 @@ export function KeyboardAccessoryBar({
   useEffect(() => {
     // Defer heavy mounting of SwipeButtons and Reanimated worklets 
     // to prevent UI thread starvation and a 30 FPS drop on initial startup.
-    const idleHandle = requestIdleCallback(() => {
+    const timer = setTimeout(() => {
       setIsReady(true);
-    });
-    return () => cancelIdleCallback(idleHandle);
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();

@@ -56,15 +56,13 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   const [stateManager, setStateManager] = useState<EditorStateManager | null>(null);
 
   useEffect(() => {
-    // Defer the heavy C++ Nitro initialization (TreeSitter query compilation takes ~50-80ms).
-    // Doing this synchronously in useState blocks the JS thread during the React render phase,
-    // which starves the UI thread and drops the frame rate to ~13 FPS on startup.
-    const idleHandle = requestIdleCallback(() => {
+    // Defer the heavy C++ Nitro initialization
+    const timer = setTimeout(() => {
       const sm = new EditorStateManager();
       sm.loadContent(initialContent);
       setStateManager(sm);
-    });
-    return () => cancelIdleCallback(idleHandle);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [initialContent]);
 
   if (!stateManager) {
