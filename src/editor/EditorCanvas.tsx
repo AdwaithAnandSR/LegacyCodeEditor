@@ -20,6 +20,7 @@ import {
   StyleSheet,
   View,
   TextInput,
+  InteractionManager,
   type LayoutChangeEvent,
 } from "react-native";
 import {
@@ -53,13 +54,28 @@ export interface EditorCanvasProps {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
-  // ── 1. State manager (mutable, imperative, never triggers re-renders) ──
-  const [stateManager] = useState(() => {
-    const sm = new EditorStateManager();
-    sm.loadContent(initialContent);
-    return sm;
-  });
+  const [stateManager, setStateManager] = useState<EditorStateManager | null>(null);
 
+  useEffect(() => {
+    // Defer the heavy C++ Nitro initialization (TreeSitter query compilation takes ~50-80ms).
+    // Doing this synchronously in useState blocks the JS thread during the React render phase,
+    // which starves the UI thread and drops the frame rate to ~13 FPS on startup.
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      const sm = new EditorStateManager();
+      sm.loadContent(initialContent);
+      setStateManager(sm);
+    });
+    return () => interaction.cancel();
+  }, [initialContent]);
+
+  if (!stateManager) {
+    return <View style={styles.container} />;
+  }
+
+  return <EditorCanvasInner stateManager={stateManager} />;
+}
+
+function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager }) {
   // ── 2. Load fonts ──────────────────────────────────────────────────────
   const fontProvider = useFonts({
     SpaceMono: [require("../../assets/fonts/SpaceMono-Regular.ttf")],
@@ -145,8 +161,6 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   // ── 6. Input hook ──────────────────────────────────────────────────────
   const { inputRef, handleTextChange, handleKeyPress, focus } =
     useEditorInput(stateManager);
-
-
 
   // ── 7. Scroll / tap gesture ────────────────────────────────────────────
   const { gesture } = useEditorScroll(stateManager, focus);

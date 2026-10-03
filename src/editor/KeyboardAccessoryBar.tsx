@@ -7,6 +7,7 @@ import {
   Text,
   LayoutAnimation,
   Dimensions,
+  InteractionManager,
 } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
@@ -254,8 +255,18 @@ export function KeyboardAccessoryBar({
   initialMode = 'two',
   onModeChange,
 }: KeyboardAccessoryBarProps) {
+  const [isReady, setIsReady] = useState(false);
   const [isShiftActive, setIsShiftActive] = useState(false);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
+
+  useEffect(() => {
+    // Defer heavy mounting of SwipeButtons and Reanimated worklets 
+    // to prevent UI thread starvation and a 30 FPS drop on initial startup.
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      setIsReady(true);
+    });
+    return () => interaction.cancel();
+  }, []);
 
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const animatedOverlayStyle = useAnimatedStyle(() => ({
@@ -360,7 +371,7 @@ export function KeyboardAccessoryBar({
         </TouchableOpacity>
 
         {/* Accessory rows container */}
-        {barHeight > 0 && (
+        {isReady && barHeight > 0 && (
           <View style={[styles.barContainer, { height: barHeight }]}>
             {/* Row 1 (High priority - top row, always visible when bar is shown) */}
             <View style={styles.rowWrapper}>
