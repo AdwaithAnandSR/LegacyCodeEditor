@@ -146,6 +146,8 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   const { inputRef, handleTextChange, handleKeyPress, focus } =
     useEditorInput(stateManager);
 
+
+
   // ── 7. Scroll / tap gesture ────────────────────────────────────────────
   const { gesture } = useEditorScroll(stateManager, focus);
 
@@ -177,7 +179,6 @@ export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
               caretHidden={true}
               multiline={true}
               blurOnSubmit={false}
-              autoFocus
             />
           </View>
 
