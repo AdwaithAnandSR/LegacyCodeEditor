@@ -200,8 +200,12 @@ export class EditorStateManager {
   // ── Invalidation callback (set by the Skia layer) ────────────────────────
   private _invalidate: InvalidateCallback | null = null;
 
-  // ── Cursor blink timer ───────────────────────────────────────────────────
-  private _blinkTimer: ReturnType<typeof setInterval> | null = null;
+  // ── Cursor activity listener (for UI-thread cursor overlay) ──────────────
+  private _onCursorActivity: (() => void) | null = null;
+
+  setOnCursorActivity(cb: (() => void) | null) {
+    this._onCursorActivity = cb;
+  }
 
   constructor() {
     this.engine = createEditorEngine();
@@ -1105,31 +1109,49 @@ export class EditorStateManager {
     this.invalidate();
   }
 
-  // ── Cursor blink ─────────────────────────────────────────────────────────
+  // ── Cursor Position & Blink (UI-Thread Decoupled) ────────────────────────
+  getCursorScreenPosition(): { x: number; y: number; visible: boolean } {
+    // If there's a range selection, normal cursor is hidden
+    const hasRangeSelection =
+      this.selection !== null &&
+      (this.selection.startLine !== this.selection.endLine ||
+        this.selection.startColumn !== this.selection.endColumn);
+    if (hasRangeSelection) {
+      return { x: 0, y: 0, visible: false };
+    }
+
+    // If there's a zero-width selection handle (teardrop), the stationary handle is drawn in Skia
+    const isZeroWidthSelection = this.selection !== null && !hasRangeSelection;
+    if (isZeroWidthSelection) {
+      return { x: 0, y: 0, visible: false };
+    }
+
+    const cx = this.getCursorX();
+    const cy = this.getCursorY() - this.scrollOffset.y;
+
+    const visible =
+      this.charWidth > 0 &&
+      cy + EDITOR_THEME.lineHeight >= 0 &&
+      cy <= this.viewport.height &&
+      cx >= EDITOR_THEME.gutterWidth &&
+      cx <= this.viewport.width;
+
+    return { x: cx, y: cy, visible };
+  }
 
   startBlink() {
-    this.stopBlink();
     this.cursorVisible = true;
-    this._blinkTimer = setInterval(() => {
-      this.cursorVisible = !this.cursorVisible;
-      this.invalidate();
-    }, EDITOR_THEME.cursorBlinkIntervalMs);
+    this._onCursorActivity?.();
   }
 
   stopBlink() {
-    if (this._blinkTimer) {
-      clearInterval(this._blinkTimer);
-      this._blinkTimer = null;
-    }
+    // JS blink timer is eliminated. Opacity is driven by Reanimated UI thread.
   }
 
   /** Reset blink to visible (called on every keystroke/movement). */
   private resetBlink() {
     this.cursorVisible = true;
-    // Restart the timer so the cursor stays visible for a full interval
-    if (this._blinkTimer) {
-      this.startBlink();
-    }
+    this._onCursorActivity?.();
   }
 
   // ── Ensure cursor is in viewport ─────────────────────────────────────────
@@ -1194,6 +1216,7 @@ export class EditorStateManager {
     this.stopBlink();
     this.stopMomentumScroll();
     this._invalidate = null;
+    this._onCursorActivity = null;
     this._uiListeners.clear();
   }
 }

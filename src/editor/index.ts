@@ -3,6 +3,7 @@
  */
 
 export { EditorCanvas, type EditorCanvasProps } from "./EditorCanvas";
+export { CursorOverlay, type CursorOverlayProps } from "./CursorOverlay";
 export { EditorStateManager } from "./EditorStateManager";
 export { EDITOR_THEME, type EditorTheme } from "./theme";
 export {

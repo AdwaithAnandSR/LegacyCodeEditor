@@ -41,6 +41,7 @@ import {
 import { useEditorInput, SENTINEL } from "./useEditorInput";
 import { useEditorScroll } from "./useEditorScroll";
 import { FloatingMenu } from "./FloatingMenu";
+import { CursorOverlay } from "./CursorOverlay";
 import { EDITOR_THEME } from "./theme";
 import { KeyboardAccessoryBar } from "./KeyboardAccessoryBar";
 
@@ -126,17 +127,26 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
     };
 
   // ── 5. Redraw trigger (Bypasses React entirely!) ───────────────────────
-  //
-  // We use a Reanimated SharedValue to hold the SkPicture. When the state
-  // manager invalidates, we imperatively create a new picture and assign it.
-  // Skia listens to this SharedValue and repaints on the GPU automatically,
-  // without triggering a slow React re-render.
   const pictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
+
+  // ── 5b. UI-Thread Cursor Overlay State ────────────────────────────────
+  const cursorX = useSharedValue(0);
+  const cursorY = useSharedValue(0);
+  const cursorVisible = useSharedValue(false);
+  const cursorActivity = useSharedValue(0);
+  const [isAppActive, setIsAppActive] = useState(true);
 
   useEffect(() => {
     if (resources) {
       stateManager.setCharWidth(resources.charWidth);
     }
+
+    const syncCursor = () => {
+      const pos = stateManager.getCursorScreenPosition();
+      cursorX.value = pos.x;
+      cursorY.value = pos.y;
+      cursorVisible.value = pos.visible;
+    };
 
     let isDrawScheduled = false;
     let animFrameId: number | null = null;
@@ -152,22 +162,26 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
           size.height,
         );
       }
+      syncCursor();
     };
 
     const cleanup = stateManager.setInvalidate(() => {
+      syncCursor();
       if (isDrawScheduled) return;
       isDrawScheduled = true;
       animFrameId = requestAnimationFrame(performDraw);
     });
 
-    stateManager.startBlink();
+    stateManager.setOnCursorActivity(() => {
+      syncCursor();
+      cursorActivity.value = cursorActivity.value + 1;
+    });
+
+    // Initial position sync
+    syncCursor();
 
     const appStateSub = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active") {
-        stateManager.startBlink();
-      } else {
-        stateManager.stopBlink();
-      }
+      setIsAppActive(nextState === "active");
     });
 
     return () => {
@@ -177,7 +191,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       stateManager.dispose();
       if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
     };
-  }, [stateManager, pictureSV, resources]);
+  }, [stateManager, pictureSV, resources, cursorX, cursorY, cursorVisible, cursorActivity]);
 
   // ── 6. Input hook ──────────────────────────────────────────────────────
   const { inputRef, handleTextChange, handleKeyPress, focus } =
@@ -199,6 +213,14 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
           <Canvas style={StyleSheet.absoluteFill}>
             <Picture picture={pictureSV} />
           </Canvas>
+
+          <CursorOverlay
+            x={cursorX}
+            y={cursorY}
+            visible={cursorVisible}
+            active={isAppActive}
+            activityCount={cursorActivity}
+          />
 
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>
             <TextInput

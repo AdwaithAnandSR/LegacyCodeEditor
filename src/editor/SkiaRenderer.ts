@@ -423,11 +423,13 @@ function drawEditorToCanvas(
     }
   }
 
-  // ── Cursor ────────────────────────────────────────────────────
+  // ── Stationary Zero-Width Selection Handle (Teardrop) ────────
+  // Normal blinking caret is rendered by the UI-thread CursorOverlay component
+  // to avoid re-recording the entire SkPicture on every 530ms blink.
   const hasRangeSelection = state.selection && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn);
   const isZeroWidthSelection = state.selection && !hasRangeSelection;
   
-  if ((state.cursorVisible || isZeroWidthSelection) && !hasRangeSelection) {
+  if (isZeroWidthSelection) {
     const cx = state.getCursorX();
     const cy = state.getCursorY();
 
@@ -441,12 +443,10 @@ function drawEditorToCanvas(
         PAINTS.cursor,
       );
       
-      if (state.selection) {
-        canvas.save();
-        canvas.translate(cx + cursorWidth / 2, cy + lineHeight + 15);
-        canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
-        canvas.restore();
-      }
+      canvas.save();
+      canvas.translate(cx + cursorWidth / 2, cy + lineHeight + 15);
+      canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
+      canvas.restore();
     }
   }
 
