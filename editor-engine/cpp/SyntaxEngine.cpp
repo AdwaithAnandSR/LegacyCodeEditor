@@ -2,8 +2,19 @@
 #include "HybridEditorEngine.hpp"
 #include <iostream>
 #include <cstring>
+#include <algorithm>
 
 namespace margelo::nitro::editorengine {
+
+static int getCapturePriority(const std::string& type) {
+    if (type == "keyword") return 6;
+    if (type == "function") return 5;
+    if (type == "property") return 4;
+    if (type == "string") return 3;
+    if (type == "number") return 2;
+    if (type == "comment") return 1;
+    return 0; // variable / default
+}
 
 SyntaxEngine::SyntaxEngine(const PieceTable* pieceTable) : pieceTable_(pieceTable) {
     parser_ = ts_parser_new();
@@ -125,14 +136,32 @@ void SyntaxEngine::applyEditAndParse(
         return;
     }
     
+    // In tree-sitter, TSPoint column is the BYTE offset from line start
+    size_t startLineIdx = static_cast<size_t>(std::max(1.0, startPos.line)) - 1;
+    size_t oldEndLineIdx = static_cast<size_t>(std::max(1.0, oldEndPos.line)) - 1;
+    size_t newEndLineIdx = static_cast<size_t>(std::max(1.0, newEndPos.line)) - 1;
+
+    size_t startLineStart = pieceTable_->getLineStartOffset(startLineIdx);
+    size_t oldEndLineStart = pieceTable_->getLineStartOffset(oldEndLineIdx);
+    size_t newEndLineStart = pieceTable_->getLineStartOffset(newEndLineIdx);
+
     TSInputEdit edit;
     edit.start_byte = startByte;
     edit.old_end_byte = oldEndByte;
     edit.new_end_byte = newEndByte;
     
-    edit.start_point = {static_cast<uint32_t>(startPos.line - 1), static_cast<uint32_t>(startPos.column)};
-    edit.old_end_point = {static_cast<uint32_t>(oldEndPos.line - 1), static_cast<uint32_t>(oldEndPos.column)};
-    edit.new_end_point = {static_cast<uint32_t>(newEndPos.line - 1), static_cast<uint32_t>(newEndPos.column)};
+    edit.start_point = {
+        static_cast<uint32_t>(startLineIdx),
+        static_cast<uint32_t>(startByte >= startLineStart ? startByte - startLineStart : 0)
+    };
+    edit.old_end_point = {
+        static_cast<uint32_t>(oldEndLineIdx),
+        static_cast<uint32_t>(oldEndByte >= oldEndLineStart ? oldEndByte - oldEndLineStart : 0)
+    };
+    edit.new_end_point = {
+        static_cast<uint32_t>(newEndLineIdx),
+        static_cast<uint32_t>(newEndByte >= newEndLineStart ? newEndByte - newEndLineStart : 0)
+    };
     
     ts_tree_edit(tree_, &edit);
     
@@ -148,18 +177,29 @@ void SyntaxEngine::applyEditAndParse(
 
 std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLine) const {
     std::vector<SyntaxToken> tokens;
-    if (!tree_ || !query_) return tokens;
+    if (!tree_ || !query_ || !pieceTable_) return tokens;
     
     TSNode root_node = ts_tree_root_node(tree_);
-    
     TSQueryCursor* cursor = ts_query_cursor_new();
     
-    TSPoint start_point = {static_cast<uint32_t>(startLine - 1), 0};
-    TSPoint end_point = {static_cast<uint32_t>(endLine), 0};
+    uint32_t minRow = static_cast<uint32_t>(std::max(0, startLine - 1));
+    uint32_t maxRow = static_cast<uint32_t>(std::max(0, endLine - 1));
+
+    TSPoint start_point = {minRow, 0};
+    TSPoint end_point = {maxRow + 1, 0};
     ts_query_cursor_set_point_range(cursor, start_point, end_point);
     
     ts_query_cursor_exec(cursor, query_, root_node);
     
+    struct RawToken {
+        double line;
+        double startCol;
+        double endCol;
+        std::string type;
+        int priority;
+    };
+    std::vector<RawToken> rawTokens;
+
     TSQueryMatch match;
     while (ts_query_cursor_next_match(cursor, &match)) {
         for (uint16_t i = 0; i < match.capture_count; ++i) {
@@ -172,31 +212,60 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
             uint32_t name_len;
             const char* name = ts_query_capture_name_for_id(query_, capture.index, &name_len);
             std::string tokenType(name, name_len);
-            
-            if (start.row == end.row) {
-                tokens.push_back(SyntaxToken(
-                    static_cast<double>(start.row + 1),
-                    static_cast<double>(start.column),
-                    static_cast<double>(end.column),
-                    tokenType
-                ));
-            } else {
-                // Multi-line token: yield one segment per line
-                for (uint32_t r = start.row; r <= end.row; ++r) {
-                    double sCol = (r == start.row) ? static_cast<double>(start.column) : 0.0;
-                    double eCol = (r == end.row) ? static_cast<double>(end.column) : 999999.0; // Extend to end of line
-                    tokens.push_back(SyntaxToken(
+            int priority = getCapturePriority(tokenType);
+
+            // Clamp rows to visible range (solves defect R5!)
+            uint32_t rStart = std::max(start.row, minRow);
+            uint32_t rEnd = std::min(end.row, maxRow);
+
+            for (uint32_t r = rStart; r <= rEnd; ++r) {
+                std::string lineStr = pieceTable_->getLine(r);
+                double sCol = (r == start.row) 
+                    ? static_cast<double>(utf8_util::byteOffsetToUtf16Column(lineStr, start.column)) 
+                    : 0.0;
+                double eCol = (r == end.row) 
+                    ? static_cast<double>(utf8_util::byteOffsetToUtf16Column(lineStr, end.column)) 
+                    : static_cast<double>(utf8_util::utf16Length(lineStr));
+                
+                if (eCol > sCol) {
+                    rawTokens.push_back(RawToken{
                         static_cast<double>(r + 1),
                         sCol,
                         eCol,
-                        tokenType
-                    ));
+                        tokenType,
+                        priority
+                    });
                 }
             }
         }
     }
     
     ts_query_cursor_delete(cursor);
+
+    // Sort tokens by (line, startCol, -priority, -(endCol - startCol))
+    std::stable_sort(rawTokens.begin(), rawTokens.end(), [](const RawToken& a, const RawToken& b) {
+        if (a.line != b.line) return a.line < b.line;
+        if (a.startCol != b.startCol) return a.startCol < b.startCol;
+        if (a.priority != b.priority) return a.priority > b.priority;
+        return (a.endCol - a.startCol) > (b.endCol - b.startCol);
+    });
+
+    // Deduplicate overlapping captures on the same line (solves Bug 12)
+    tokens.reserve(rawTokens.size());
+    double currentLine = -1;
+    double lastEndCol = -1;
+
+    for (const auto& rt : rawTokens) {
+        if (rt.line != currentLine) {
+            currentLine = rt.line;
+            lastEndCol = -1;
+        }
+        if (rt.startCol >= lastEndCol) {
+            tokens.push_back(SyntaxToken(rt.line, rt.startCol, rt.endCol, rt.type));
+            lastEndCol = rt.endCol;
+        }
+    }
+
     return tokens;
 }
 

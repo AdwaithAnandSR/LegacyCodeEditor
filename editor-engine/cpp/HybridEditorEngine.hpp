@@ -13,8 +13,94 @@
 #include <algorithm>
 #include <numeric>
 #include <cmath>
+#include <cstring>
 
 namespace margelo::nitro::editorengine {
+
+// ─── UTF-8 / UTF-16 Code Unit Conversion Utilities ────────────────────────────
+
+namespace utf8_util {
+
+inline size_t utf16Length(const std::string& str) {
+    size_t len = 0;
+    size_t i = 0;
+    const size_t n = str.size();
+    while (i < n) {
+        unsigned char c = static_cast<unsigned char>(str[i]);
+        if (c < 0x80) {
+            i += 1;
+            len += 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            i += 2;
+            len += 1;
+        } else if ((c & 0xF0) == 0xE0) {
+            i += 3;
+            len += 1;
+        } else if ((c & 0xF8) == 0xF0) {
+            i += 4;
+            len += 2; // Surrogate pair in UTF-16
+        } else {
+            i += 1;
+            len += 1;
+        }
+    }
+    return len;
+}
+
+inline size_t utf16ColumnToByteOffset(const std::string& str, size_t utf16Col) {
+    if (utf16Col == 0) return 0;
+    size_t currentU16 = 0;
+    size_t i = 0;
+    const size_t n = str.size();
+    while (i < n && currentU16 < utf16Col) {
+        unsigned char c = static_cast<unsigned char>(str[i]);
+        if (c < 0x80) {
+            i += 1;
+            currentU16 += 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            i += (i + 2 <= n) ? 2 : (n - i);
+            currentU16 += 1;
+        } else if ((c & 0xF0) == 0xE0) {
+            i += (i + 3 <= n) ? 3 : (n - i);
+            currentU16 += 1;
+        } else if ((c & 0xF8) == 0xF0) {
+            i += (i + 4 <= n) ? 4 : (n - i);
+            currentU16 += 2;
+        } else {
+            i += 1;
+            currentU16 += 1;
+        }
+    }
+    return i;
+}
+
+inline size_t byteOffsetToUtf16Column(const std::string& str, size_t byteOffset) {
+    byteOffset = std::min(byteOffset, str.size());
+    size_t currentU16 = 0;
+    size_t i = 0;
+    while (i < byteOffset) {
+        unsigned char c = static_cast<unsigned char>(str[i]);
+        if (c < 0x80) {
+            i += 1;
+            currentU16 += 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            i += 2;
+            currentU16 += 1;
+        } else if ((c & 0xF0) == 0xE0) {
+            i += 3;
+            currentU16 += 1;
+        } else if ((c & 0xF8) == 0xF0) {
+            i += 4;
+            currentU16 += 2;
+        } else {
+            i += 1;
+            currentU16 += 1;
+        }
+    }
+    return currentU16;
+}
+
+} // namespace utf8_util
 
 // ─── Piece Table Data Structure ───────────────────────────────────────────────
 
@@ -39,6 +125,7 @@ private:
     std::string originalBuffer_;
     std::string addBuffer_;
     std::vector<Piece> pieces_;
+    size_t totalLength_ = 0;
 
     // ── Line cache ────────────────────────────────────────────────────────
     mutable bool linesCacheDirty_ = true;
@@ -57,12 +144,20 @@ private:
         for (const auto& piece : pieces_) {
             const std::string& buf = (piece.buffer == BufferType::ORIGINAL)
                                      ? originalBuffer_ : addBuffer_;
-            for (size_t i = 0; i < piece.length; ++i) {
-                char c = buf[piece.start + i];
-                ++offset;
-                if (c == '\n') {
-                    lineStartOffsets_.push_back(offset);
+            const char* data = buf.data() + piece.start;
+            size_t remaining = piece.length;
+
+            while (remaining > 0) {
+                const void* nl = std::memchr(data, '\n', remaining);
+                if (!nl) {
+                    offset += remaining;
+                    break;
                 }
+                size_t found = static_cast<const char*>(nl) - data;
+                offset += found + 1;
+                lineStartOffsets_.push_back(offset);
+                data = static_cast<const char*>(nl) + 1;
+                remaining -= (found + 1);
             }
         }
         linesCacheDirty_ = false;
@@ -107,6 +202,7 @@ public:
         originalBuffer_ = content;
         addBuffer_.clear();
         pieces_.clear();
+        totalLength_ = content.size();
         if (!content.empty()) {
             pieces_.push_back({BufferType::ORIGINAL, 0, content.size()});
         }
@@ -117,6 +213,7 @@ public:
         originalBuffer_ = content;
         addBuffer_.clear();
         pieces_.clear();
+        totalLength_ = content.size();
         if (!content.empty()) {
             pieces_.push_back({BufferType::ORIGINAL, 0, content.size()});
         }
@@ -125,7 +222,7 @@ public:
 
     std::string getText() const {
         std::string result;
-        result.reserve(length());
+        result.reserve(totalLength_);
         for (const auto& piece : pieces_) {
             const std::string& buf = (piece.buffer == BufferType::ORIGINAL)
                                      ? originalBuffer_ : addBuffer_;
@@ -148,9 +245,7 @@ public:
     }
 
     size_t length() const {
-        size_t total = 0;
-        for (const auto& p : pieces_) total += p.length;
-        return total;
+        return totalLength_;
     }
 
     size_t lineCount() const {
@@ -158,14 +253,21 @@ public:
         return lineStartOffsets_.size();
     }
 
+    const std::vector<size_t>& getLineStartOffsets() const {
+        rebuildLineCacheIfNeeded();
+        return lineStartOffsets_;
+    }
+
     /**
      * Insert text at a given document byte offset.
+     * Merges adjacent pieces into the addBuffer_ when contiguous (solves defect E4).
      */
     void insert(size_t offset, const std::string& text) {
         if (text.empty()) return;
 
         size_t addStart = addBuffer_.size();
         addBuffer_ += text;
+        totalLength_ += text.size();
         Piece newPiece{BufferType::ADD, addStart, text.size()};
 
         if (pieces_.empty()) {
@@ -177,11 +279,21 @@ public:
         auto [pieceIdx, innerOffset] = findPieceAtOffset(offset);
 
         if (pieceIdx >= pieces_.size()) {
-            // Append at end
-            pieces_.push_back(newPiece);
+            // Append at end: if last piece is contiguous in addBuffer_, extend it
+            Piece& last = pieces_.back();
+            if (last.buffer == BufferType::ADD && last.start + last.length == addStart) {
+                last.length += text.size();
+            } else {
+                pieces_.push_back(newPiece);
+            }
         } else if (innerOffset == 0) {
-            // Insert before piece
-            pieces_.insert(pieces_.begin() + static_cast<ptrdiff_t>(pieceIdx), newPiece);
+            // Insert before piece: check if preceding piece is contiguous
+            if (pieceIdx > 0 && pieces_[pieceIdx - 1].buffer == BufferType::ADD &&
+                pieces_[pieceIdx - 1].start + pieces_[pieceIdx - 1].length == addStart) {
+                pieces_[pieceIdx - 1].length += text.size();
+            } else {
+                pieces_.insert(pieces_.begin() + static_cast<ptrdiff_t>(pieceIdx), newPiece);
+            }
         } else {
             // Split the piece
             Piece& orig = pieces_[pieceIdx];
@@ -199,6 +311,7 @@ public:
      */
     void remove(size_t offset, size_t count) {
         if (count == 0) return;
+        totalLength_ = (totalLength_ >= count) ? (totalLength_ - count) : 0;
 
         size_t remaining = count;
         size_t pos = 0;
@@ -322,17 +435,26 @@ public:
     }
 };
 
-// ─── Undo/Redo System ────────────────────────────────────────────────────────
+// ─── Undo/Redo System (Inverse Edit Based) ───────────────────────────────────
 
-struct UndoAction {
-    std::string contentBefore;
+struct UndoEdit {
+    size_t byteOffset;
+    std::string textBefore; // Deleted text (for undo restoration)
+    std::string textAfter;  // Inserted text (for redo re-application)
+    uint64_t versionBefore;
+    uint64_t versionAfter;
+};
+
+struct UndoStep {
+    std::vector<UndoEdit> edits;
 };
 
 class UndoManager {
 private:
-    std::vector<UndoAction> undoStack_;
-    std::vector<UndoAction> redoStack_;
+    std::vector<UndoStep> undoStack_;
+    std::vector<UndoStep> redoStack_;
     size_t groupDepth_ = 0;
+    static constexpr size_t MAX_STACK_SIZE = 1000;
 
 public:
     void clear() {
@@ -341,11 +463,30 @@ public:
         groupDepth_ = 0;
     }
 
-    void pushState(const std::string& content) {
-        // If we're inside a group and already have state, skip
-        if (groupDepth_ > 0 && !undoStack_.empty()) return;
-        undoStack_.push_back({content});
+    void recordEdit(size_t offset, const std::string& before, const std::string& after, uint64_t vBefore, uint64_t vAfter) {
         redoStack_.clear();
+
+        // Typing run coalescing: merge consecutive single-character inserts into one undo step
+        if (groupDepth_ == 0 && !undoStack_.empty() && undoStack_.back().edits.size() == 1) {
+            auto& lastEdit = undoStack_.back().edits.front();
+            if (lastEdit.textBefore.empty() && before.empty() &&
+                lastEdit.textAfter.size() < 80 && after.size() == 1 &&
+                after[0] != '\n' && after[0] != '\r' &&
+                lastEdit.byteOffset + lastEdit.textAfter.size() == offset) {
+                lastEdit.textAfter += after;
+                lastEdit.versionAfter = vAfter;
+                return;
+            }
+        }
+
+        if (groupDepth_ > 0 && !undoStack_.empty()) {
+            undoStack_.back().edits.push_back({offset, before, after, vBefore, vAfter});
+        } else {
+            if (undoStack_.size() >= MAX_STACK_SIZE) {
+                undoStack_.erase(undoStack_.begin());
+            }
+            undoStack_.push_back(UndoStep{{UndoEdit{offset, before, after, vBefore, vAfter}}});
+        }
     }
 
     bool canUndo() const { return !undoStack_.empty(); }
@@ -353,31 +494,54 @@ public:
     size_t undoCount() const { return undoStack_.size(); }
     size_t redoCount() const { return redoStack_.size(); }
 
-    /**
-     * Undo: returns the content to restore, if available.
-     */
-    std::optional<std::string> undo(const std::string& currentContent) {
+    std::optional<UndoStep> popUndo() {
         if (undoStack_.empty()) return std::nullopt;
-        redoStack_.push_back({currentContent});
-        auto state = undoStack_.back();
+        UndoStep step = std::move(undoStack_.back());
         undoStack_.pop_back();
-        return state.contentBefore;
+        redoStack_.push_back(step);
+        return step;
     }
 
-    /**
-     * Redo: returns the content to restore, if available.
-     */
-    std::optional<std::string> redo(const std::string& currentContent) {
+    std::optional<UndoStep> popRedo() {
         if (redoStack_.empty()) return std::nullopt;
-        undoStack_.push_back({currentContent});
-        auto state = redoStack_.back();
+        UndoStep step = std::move(redoStack_.back());
         redoStack_.pop_back();
-        return state.contentBefore;
+        undoStack_.push_back(step);
+        return step;
     }
 
-    void beginGroup() { groupDepth_++; }
-    void endGroup() { if (groupDepth_ > 0) groupDepth_--; }
+    void beginGroup() {
+        groupDepth_++;
+        undoStack_.push_back(UndoStep{});
+    }
+
+    void endGroup() {
+        if (groupDepth_ > 0) {
+            groupDepth_--;
+            if (!undoStack_.empty() && undoStack_.back().edits.empty()) {
+                undoStack_.pop_back();
+            }
+        }
+    }
+
     bool isGrouping() const { return groupDepth_ > 0; }
+
+    size_t memorySize() const {
+        size_t bytes = sizeof(*this);
+        for (const auto& step : undoStack_) {
+            bytes += sizeof(UndoStep) + step.edits.capacity() * sizeof(UndoEdit);
+            for (const auto& e : step.edits) {
+                bytes += e.textBefore.capacity() + e.textAfter.capacity();
+            }
+        }
+        for (const auto& step : redoStack_) {
+            bytes += sizeof(UndoStep) + step.edits.capacity() * sizeof(UndoEdit);
+            for (const auto& e : step.edits) {
+                bytes += e.textBefore.capacity() + e.textAfter.capacity();
+            }
+        }
+        return bytes;
+    }
 };
 
 // ─── Hybrid Object Implementation ────────────────────────────────────────────
@@ -394,32 +558,56 @@ private:
     double tabSize_ = 4;
     bool insertSpaces_ = true;
     bool modified_ = false;
-    std::string savedContentHash_;
+
+    // Document version tracking (O(1) modified check without hashing whole document)
+    uint64_t documentVersion_ = 0;
+    uint64_t savedDocumentVersion_ = 0;
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
     /**
-     * Convert 1-based line + 0-based column to a byte offset.
+     * Record an edit operation in the undo manager and update document version.
      */
-    size_t toOffset(double line, double column) const {
-        size_t lineIdx = static_cast<size_t>(std::max(1.0, line)) - 1;
-        size_t col = static_cast<size_t>(std::max(0.0, column));
-        size_t lineStart = pieceTable_.getLineStartOffset(lineIdx);
-        return lineStart + col;
+    void recordEdit(size_t offset, const std::string& before, const std::string& after) {
+        documentVersion_++;
+        modified_ = (documentVersion_ != savedDocumentVersion_);
+        undoManager_.recordEdit(offset, before, after, documentVersion_ - 1, documentVersion_);
     }
 
     /**
-     * Convert a byte offset to {line (1-based), column (0-based)}.
+     * Convert 1-based line + 0-based UTF-16 column to a byte offset.
+     */
+    size_t toOffset(double line, double column) const {
+        size_t lc = pieceTable_.lineCount();
+        if (lc == 0) return 0;
+        size_t lineIdx = static_cast<size_t>(std::max(1.0, line)) - 1;
+        lineIdx = std::min(lineIdx, lc - 1);
+
+        size_t lineStart = pieceTable_.getLineStartOffset(lineIdx);
+        std::string lineText = pieceTable_.getLine(lineIdx);
+        size_t col = static_cast<size_t>(std::max(0.0, column));
+        size_t byteOffsetInLine = utf8_util::utf16ColumnToByteOffset(lineText, col);
+        return lineStart + byteOffsetInLine;
+    }
+
+    /**
+     * Convert a byte offset to {line (1-based), column (0-based UTF-16 units)}
+     * using binary search over line start offsets (solves defect E5).
      */
     CursorPosition toPosition(size_t offset) const {
-        size_t lc = pieceTable_.lineCount();
-        for (size_t i = lc; i > 0; --i) {
-            size_t lineStart = pieceTable_.getLineStartOffset(i - 1);
-            if (offset >= lineStart) {
-                return CursorPosition{static_cast<double>(i), static_cast<double>(offset - lineStart)};
-            }
+        size_t docLen = pieceTable_.length();
+        offset = std::min(offset, docLen);
+        const auto& starts = pieceTable_.getLineStartOffsets();
+        if (starts.empty() || offset == 0) {
+            return CursorPosition{1.0, 0.0};
         }
-        return CursorPosition{1.0, 0.0};
+        auto it = std::upper_bound(starts.begin(), starts.end(), offset);
+        size_t lineIdx = (it - starts.begin()) - 1;
+        size_t lineStart = starts[lineIdx];
+        size_t byteOffsetInLine = offset - lineStart;
+        std::string lineText = pieceTable_.getLine(lineIdx);
+        double col = static_cast<double>(utf8_util::byteOffsetToUtf16Column(lineText, byteOffsetInLine));
+        return CursorPosition{static_cast<double>(lineIdx + 1), col};
     }
 
     /**
@@ -430,33 +618,17 @@ private:
     }
 
     /**
-     * Simple string hash using DJB2 algorithm.
+     * Simple 64-bit string hash using FNV-1a algorithm for document hashing.
      */
     std::string computeHash(const std::string& content) const {
-        unsigned long hash = 5381;
+        uint64_t hash = 14695981039346656037ULL;
         for (char c : content) {
-            hash = ((hash << 5) + hash) + static_cast<unsigned char>(c);
+            hash ^= static_cast<unsigned char>(c);
+            hash *= 1099511628211ULL;
         }
-        // Convert to hex string
         std::ostringstream oss;
         oss << std::hex << hash;
         return oss.str();
-    }
-
-    /**
-     * Record the current state for undo before making a change.
-     */
-    void recordUndo() {
-        undoManager_.pushState(pieceTable_.getText());
-        modified_ = true;
-    }
-
-    /**
-     * Get the length of a line by its 0-based index, excluding line endings.
-     */
-    size_t getLineLengthInternal(size_t lineIdx) const {
-        std::string line = pieceTable_.getLine(lineIdx);
-        return line.size();
     }
 
     /**
@@ -470,10 +642,11 @@ private:
     }
 
     /**
-     * Check if a character is a word character (alphanumeric or underscore).
+     * Check if a character is a word character (alphanumeric, underscore, or Unicode).
      */
     static bool isWordChar(char c) {
-        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+        unsigned char uc = static_cast<unsigned char>(c);
+        return std::isalnum(uc) || uc == '_' || uc >= 0x80;
     }
 
     /**
@@ -556,8 +729,9 @@ public:
     void loadContent(const std::string& content) override {
         pieceTable_.loadContent(content);
         undoManager_.clear();
+        documentVersion_ = 0;
+        savedDocumentVersion_ = 0;
         modified_ = false;
-        savedContentHash_ = computeHash(content);
         if (syntaxEngine_) syntaxEngine_->parseFull();
     }
 
@@ -575,17 +749,22 @@ public:
     }
 
     void markSaved() override {
-        savedContentHash_ = computeHash(pieceTable_.getText());
+        savedDocumentVersion_ = documentVersion_;
         modified_ = false;
     }
 
     // ─── Text Manipulation ──────────────────────────────────────────────
 
     CursorPosition insertText(double line, double column, const std::string& text) override {
-        recordUndo();
+        if (text.empty()) {
+            return clampPosition(line, column);
+        }
         size_t offset = toOffset(line, column);
         CursorPosition startPos = toPosition(offset);
+
+        recordEdit(offset, "", text);
         pieceTable_.insert(offset, text);
+
         size_t newOffset = offset + text.size();
         CursorPosition newPos = toPosition(newOffset);
         if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
@@ -593,40 +772,63 @@ public:
     }
 
     void deleteText(const TextRange& range) override {
-        recordUndo();
-        size_t startOff = toOffset(range.startLine, range.startColumn);
-        size_t endOff = toOffset(range.endLine, range.endColumn);
-        if (endOff > startOff) {
-            pieceTable_.remove(startOff, endOff - startOff);
+        TextRange norm = range;
+        if (norm.startLine > norm.endLine || (norm.startLine == norm.endLine && norm.startColumn > norm.endColumn)) {
+            std::swap(norm.startLine, norm.endLine);
+            std::swap(norm.startColumn, norm.endColumn);
         }
+        if (norm.startLine == norm.endLine && norm.startColumn == norm.endColumn) {
+            return; // No-op, do not push undo!
+        }
+        size_t startOff = toOffset(norm.startLine, norm.startColumn);
+        size_t endOff = toOffset(norm.endLine, norm.endColumn);
+        if (endOff <= startOff) return;
+
         CursorPosition startPos = toPosition(startOff);
         CursorPosition oldEndPos = toPosition(endOff);
+        std::string deleted = pieceTable_.getRange(startOff, endOff);
+
+        recordEdit(startOff, deleted, "");
+        pieceTable_.remove(startOff, endOff - startOff);
+
         CursorPosition newEndPos = toPosition(startOff);
         if (syntaxEngine_) syntaxEngine_->applyEditAndParse(startOff, endOff, startOff, startPos, oldEndPos, newEndPos);
     }
 
     CursorPosition replaceText(const TextRange& range, const std::string& newText) override {
-        recordUndo();
-        size_t startOff = toOffset(range.startLine, range.startColumn);
-        size_t endOff = toOffset(range.endLine, range.endColumn);
+        TextRange norm = range;
+        if (norm.startLine > norm.endLine || (norm.startLine == norm.endLine && norm.startColumn > norm.endColumn)) {
+            std::swap(norm.startLine, norm.endLine);
+            std::swap(norm.startColumn, norm.endColumn);
+        }
+        if (norm.startLine == norm.endLine && norm.startColumn == norm.endColumn && newText.empty()) {
+            return CursorPosition{norm.startLine, norm.startColumn};
+        }
+        size_t startOff = toOffset(norm.startLine, norm.startColumn);
+        size_t endOff = toOffset(norm.endLine, norm.endColumn);
         CursorPosition startPos = toPosition(startOff);
         CursorPosition oldEndPos = toPosition(endOff);
+
+        std::string deleted = (endOff > startOff) ? pieceTable_.getRange(startOff, endOff) : "";
+        recordEdit(startOff, deleted, newText);
 
         if (endOff > startOff) {
             pieceTable_.remove(startOff, endOff - startOff);
         }
-        pieceTable_.insert(startOff, newText);
+        if (!newText.empty()) {
+            pieceTable_.insert(startOff, newText);
+        }
 
         size_t newOffset = startOff + newText.size();
         CursorPosition newPos = toPosition(newOffset);
         if (syntaxEngine_) syntaxEngine_->applyEditAndParse(startOff, endOff, newOffset, startPos, oldEndPos, newPos);
-        
         return newPos;
     }
 
     void applyEdits(const std::vector<EditOperation>& edits) override {
-        bool needsParse = !edits.empty();
-        recordUndo();
+        if (edits.empty()) return;
+
+        undoManager_.beginGroup();
 
         // Sort edits in reverse order so earlier edits don't shift later offsets
         std::vector<EditOperation> sorted = edits;
@@ -639,25 +841,38 @@ public:
             size_t startOff = toOffset(edit.range.startLine, edit.range.startColumn);
             size_t endOff = toOffset(edit.range.endLine, edit.range.endColumn);
             if (endOff > startOff) {
+                std::string deleted = pieceTable_.getRange(startOff, endOff);
+                recordEdit(startOff, deleted, edit.text);
                 pieceTable_.remove(startOff, endOff - startOff);
+            } else if (!edit.text.empty()) {
+                recordEdit(startOff, "", edit.text);
             }
             if (!edit.text.empty()) {
                 pieceTable_.insert(startOff, edit.text);
             }
         }
-        if (needsParse && syntaxEngine_) syntaxEngine_->parseFull();
+
+        undoManager_.endGroup();
+        if (syntaxEngine_) syntaxEngine_->parseFull();
     }
 
     // ─── Line Operations ────────────────────────────────────────────────
 
     std::string getLine(double lineNumber) override {
+        size_t lc = pieceTable_.lineCount();
+        if (lc == 0) return "";
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
+        if (idx >= lc) return "";
         return pieceTable_.getLine(idx);
     }
 
     double getLineLength(double lineNumber) override {
+        size_t lc = pieceTable_.lineCount();
+        if (lc == 0) return 0.0;
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
-        return static_cast<double>(pieceTable_.getLine(idx).size());
+        if (idx >= lc) return 0.0;
+        std::string line = pieceTable_.getLine(idx);
+        return static_cast<double>(utf8_util::utf16Length(line));
     }
 
     LineInfo getLineInfo(double lineNumber) override {
@@ -667,7 +882,7 @@ public:
         return LineInfo{
             lineNumber,
             static_cast<double>(startOffset),
-            static_cast<double>(text.size()),
+            static_cast<double>(utf8_util::utf16Length(text)),
             text
         };
     }
@@ -685,15 +900,20 @@ public:
     }
 
     void insertLine(double lineNumber, const std::string& text) override {
-        recordUndo();
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
         size_t offset = pieceTable_.getLineStartOffset(idx);
         std::string toInsert = text + getLineEndingStr();
+        CursorPosition startPos = toPosition(offset);
+
+        recordEdit(offset, "", toInsert);
         pieceTable_.insert(offset, toInsert);
+
+        size_t newOffset = offset + toInsert.size();
+        CursorPosition newPos = toPosition(newOffset);
+        if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
     }
 
     void deleteLine(double lineNumber) override {
-        recordUndo();
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
         size_t lc = pieceTable_.lineCount();
         if (idx >= lc) return;
@@ -704,9 +924,7 @@ public:
             end = pieceTable_.getLineStartOffset(idx + 1);
         } else {
             end = pieceTable_.length();
-            // If deleting last line and there's a preceding newline, remove that too
             if (start > 0 && idx > 0) {
-                // Move start back to include the line ending after the previous line's text
                 size_t prevLineStart = pieceTable_.getLineStartOffset(idx - 1);
                 std::string prevLine = pieceTable_.getLine(idx - 1);
                 start = prevLineStart + prevLine.size();
@@ -714,15 +932,28 @@ public:
         }
 
         if (end > start) {
+            CursorPosition startPos = toPosition(start);
+            CursorPosition oldEndPos = toPosition(end);
+            std::string deleted = pieceTable_.getRange(start, end);
+
+            recordEdit(start, deleted, "");
             pieceTable_.remove(start, end - start);
+
+            CursorPosition newEndPos = toPosition(start);
+            if (syntaxEngine_) syntaxEngine_->applyEditAndParse(start, end, start, startPos, oldEndPos, newEndPos);
         }
     }
 
     // ─── Range & Position ───────────────────────────────────────────────
 
     std::string getTextInRange(const TextRange& range) override {
-        size_t startOff = toOffset(range.startLine, range.startColumn);
-        size_t endOff = toOffset(range.endLine, range.endColumn);
+        TextRange norm = range;
+        if (norm.startLine > norm.endLine || (norm.startLine == norm.endLine && norm.startColumn > norm.endColumn)) {
+            std::swap(norm.startLine, norm.endLine);
+            std::swap(norm.startColumn, norm.endColumn);
+        }
+        size_t startOff = toOffset(norm.startLine, norm.startColumn);
+        size_t endOff = toOffset(norm.endLine, norm.endColumn);
         if (endOff <= startOff) return "";
         return pieceTable_.getRange(startOff, endOff);
     }
@@ -738,26 +969,28 @@ public:
     TextRange getWordRangeAtPosition(double line, double column) override {
         std::string lineText = getLine(line);
         size_t col = static_cast<size_t>(std::max(0.0, column));
+        size_t lineLen = utf8_util::utf16Length(lineText);
 
-        if (col >= lineText.size()) {
-            return TextRange{line, column, line, column};
+        if (col >= lineLen) {
+            return TextRange{line, static_cast<double>(lineLen), line, static_cast<double>(lineLen)};
         }
 
-        // Find word boundaries
-        size_t wordStart = col;
-        size_t wordEnd = col;
+        // Find word boundaries in UTF-16 code units
+        size_t byteCol = utf8_util::utf16ColumnToByteOffset(lineText, col);
+        size_t wordStartByte = byteCol;
+        size_t wordEndByte = byteCol;
 
-        while (wordStart > 0 && isWordChar(lineText[wordStart - 1])) {
-            wordStart--;
+        while (wordStartByte > 0 && isWordChar(lineText[wordStartByte - 1])) {
+            wordStartByte--;
         }
-        while (wordEnd < lineText.size() && isWordChar(lineText[wordEnd])) {
-            wordEnd++;
+        while (wordEndByte < lineText.size() && isWordChar(lineText[wordEndByte])) {
+            wordEndByte++;
         }
 
-        return TextRange{
-            line, static_cast<double>(wordStart),
-            line, static_cast<double>(wordEnd)
-        };
+        double startCol = static_cast<double>(utf8_util::byteOffsetToUtf16Column(lineText, wordStartByte));
+        double endCol = static_cast<double>(utf8_util::byteOffsetToUtf16Column(lineText, wordEndByte));
+
+        return TextRange{line, startCol, line, endCol};
     }
 
     // ─── Search ─────────────────────────────────────────────────────────
@@ -783,6 +1016,8 @@ public:
                 auto end = std::sregex_iterator();
 
                 for (auto it = begin; it != end; ++it) {
+                    if (results.size() >= 10000) break; // Cap search results (defect E6)
+
                     size_t matchStart = static_cast<size_t>(it->position());
                     size_t matchLen = static_cast<size_t>(it->length());
 
@@ -810,13 +1045,15 @@ public:
 
             if (!caseSensitive) {
                 std::transform(searchContent.begin(), searchContent.end(),
-                               searchContent.begin(), ::tolower);
+                               searchContent.begin(), [](unsigned char c) { return std::tolower(c); });
                 std::transform(searchQuery.begin(), searchQuery.end(),
-                               searchQuery.begin(), ::tolower);
+                               searchQuery.begin(), [](unsigned char c) { return std::tolower(c); });
             }
 
             size_t pos = 0;
             while ((pos = searchContent.find(searchQuery, pos)) != std::string::npos) {
+                if (results.size() >= 10000) break; // Cap search results (defect E6)
+
                 if (wholeWord) {
                     bool leftOk = (pos == 0) || !isWordChar(searchContent[pos - 1]);
                     bool rightOk = (pos + searchQuery.size() >= searchContent.size()) ||
@@ -852,9 +1089,8 @@ public:
         auto results = findText(query, caseSensitive, wholeWord, isRegex);
         if (results.empty()) return 0;
 
-        recordUndo();
+        undoManager_.beginGroup();
 
-        // Pre-compute all byte offsets before mutating the document
         struct ByteRange {
             size_t start;
             size_t end;
@@ -867,11 +1103,14 @@ public:
             offsets.push_back({s, e});
         }
 
-        // Apply replacements in reverse order to preserve earlier offsets
         double count = 0;
         for (auto it = offsets.rbegin(); it != offsets.rend(); ++it) {
             if (it->end > it->start) {
+                std::string deleted = pieceTable_.getRange(it->start, it->end);
+                recordEdit(it->start, deleted, replacement);
                 pieceTable_.remove(it->start, it->end - it->start);
+            } else if (!replacement.empty()) {
+                recordEdit(it->start, "", replacement);
             }
             if (!replacement.empty()) {
                 pieceTable_.insert(it->start, replacement);
@@ -879,31 +1118,77 @@ public:
             count++;
         }
 
+        undoManager_.endGroup();
+        if (syntaxEngine_) syntaxEngine_->parseFull();
+
         return count;
     }
 
-    // ─── Undo / Redo ────────────────────────────────────────────────────
+    // ─── Undo / Redo (Inverse Edit Based) ────────────────────────────────
 
     void undo() override {
-        auto content = undoManager_.undo(pieceTable_.getText());
-        if (content.has_value()) {
-            pieceTable_.loadContent(content.value());
-            // Check if we're back to saved state
-            if (computeHash(content.value()) == savedContentHash_) {
-                modified_ = false;
+        auto stepOpt = undoManager_.popUndo();
+        if (!stepOpt.has_value()) return;
+        const auto& step = stepOpt.value();
+
+        // Apply inverse edits in reverse order
+        for (auto it = step.edits.rbegin(); it != step.edits.rend(); ++it) {
+            const auto& edit = *it;
+            size_t startOff = edit.byteOffset;
+            size_t oldLen = edit.textAfter.size();
+            size_t newLen = edit.textBefore.size();
+
+            CursorPosition startPos = toPosition(startOff);
+            CursorPosition oldEndPos = toPosition(startOff + oldLen);
+
+            if (oldLen > 0) {
+                pieceTable_.remove(startOff, oldLen);
             }
-            if (syntaxEngine_) syntaxEngine_->parseFull();
+            if (newLen > 0) {
+                pieceTable_.insert(startOff, edit.textBefore);
+            }
+
+            size_t newEndOff = startOff + newLen;
+            CursorPosition newEndPos = toPosition(newEndOff);
+            if (syntaxEngine_) {
+                syntaxEngine_->applyEditAndParse(startOff, startOff + oldLen, newEndOff, startPos, oldEndPos, newEndPos);
+            }
         }
+
+        documentVersion_ = step.edits.front().versionBefore;
+        modified_ = (documentVersion_ != savedDocumentVersion_);
     }
 
     void redo() override {
-        auto content = undoManager_.redo(pieceTable_.getText());
-        if (content.has_value()) {
-            pieceTable_.loadContent(content.value());
-            // Check if we're back to saved state
-            modified_ = (computeHash(content.value()) != savedContentHash_);
-            if (syntaxEngine_) syntaxEngine_->parseFull();
+        auto stepOpt = undoManager_.popRedo();
+        if (!stepOpt.has_value()) return;
+        const auto& step = stepOpt.value();
+
+        // Apply forward edits
+        for (const auto& edit : step.edits) {
+            size_t startOff = edit.byteOffset;
+            size_t oldLen = edit.textBefore.size();
+            size_t newLen = edit.textAfter.size();
+
+            CursorPosition startPos = toPosition(startOff);
+            CursorPosition oldEndPos = toPosition(startOff + oldLen);
+
+            if (oldLen > 0) {
+                pieceTable_.remove(startOff, oldLen);
+            }
+            if (newLen > 0) {
+                pieceTable_.insert(startOff, edit.textAfter);
+            }
+
+            size_t newEndOff = startOff + newLen;
+            CursorPosition newEndPos = toPosition(newEndOff);
+            if (syntaxEngine_) {
+                syntaxEngine_->applyEditAndParse(startOff, startOff + oldLen, newEndOff, startPos, oldEndPos, newEndPos);
+            }
         }
+
+        documentVersion_ = step.edits.back().versionAfter;
+        modified_ = (documentVersion_ != savedDocumentVersion_);
     }
 
     UndoRedoState getUndoRedoState() override {
@@ -916,7 +1201,6 @@ public:
     }
 
     void beginUndoGroup() override {
-        undoManager_.pushState(pieceTable_.getText());
         undoManager_.beginGroup();
     }
 
@@ -927,24 +1211,20 @@ public:
     // ─── Indentation ────────────────────────────────────────────────────
 
     void indentLine(double lineNumber) override {
-        recordUndo();
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
         size_t offset = pieceTable_.getLineStartOffset(idx);
-        std::string indent;
-        if (insertSpaces_) {
-            indent = std::string(static_cast<size_t>(tabSize_), ' ');
-        } else {
-            indent = "\t";
-        }
+        std::string indent = insertSpaces_ ? std::string(static_cast<size_t>(tabSize_), ' ') : "\t";
+
         CursorPosition startPos = toPosition(offset);
+        recordEdit(offset, "", indent);
         pieceTable_.insert(offset, indent);
+
         size_t newOffset = offset + indent.size();
         CursorPosition newPos = toPosition(newOffset);
         if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
     }
 
     void outdentLine(double lineNumber) override {
-        recordUndo();
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
         std::string line = pieceTable_.getLine(idx);
         size_t offset = pieceTable_.getLineStartOffset(idx);
@@ -964,43 +1244,41 @@ public:
             CursorPosition startPos = toPosition(offset);
             size_t endOff = offset + toRemove;
             CursorPosition oldEndPos = toPosition(endOff);
+            std::string deleted = pieceTable_.getRange(offset, endOff);
+
+            recordEdit(offset, deleted, "");
             pieceTable_.remove(offset, toRemove);
+
             CursorPosition newEndPos = toPosition(offset);
             if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, endOff, offset, startPos, oldEndPos, newEndPos);
         }
     }
 
     void indentLines(double startLine, double endLine) override {
-        recordUndo();
         size_t s = static_cast<size_t>(std::max(1.0, startLine));
         size_t e = static_cast<size_t>(std::max(1.0, endLine));
         e = std::min(e, pieceTable_.lineCount());
+        std::string indent = insertSpaces_ ? std::string(static_cast<size_t>(tabSize_), ' ') : "\t";
 
-        std::string indent;
-        if (insertSpaces_) {
-            indent = std::string(static_cast<size_t>(tabSize_), ' ');
-        } else {
-            indent = "\t";
-        }
-
-        // Insert from last to first to preserve offsets
+        undoManager_.beginGroup();
         for (size_t i = e; i >= s && i > 0; --i) {
             size_t offset = pieceTable_.getLineStartOffset(i - 1);
             CursorPosition startPos = toPosition(offset);
+            recordEdit(offset, "", indent);
             pieceTable_.insert(offset, indent);
             size_t newOffset = offset + indent.size();
             CursorPosition newPos = toPosition(newOffset);
             if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
         }
+        undoManager_.endGroup();
     }
 
     void outdentLines(double startLine, double endLine) override {
-        recordUndo();
         size_t s = static_cast<size_t>(std::max(1.0, startLine));
         size_t e = static_cast<size_t>(std::max(1.0, endLine));
         e = std::min(e, pieceTable_.lineCount());
 
-        // Remove from last to first to preserve offsets
+        undoManager_.beginGroup();
         for (size_t i = e; i >= s && i > 0; --i) {
             size_t idx = i - 1;
             std::string line = pieceTable_.getLine(idx);
@@ -1021,11 +1299,16 @@ public:
                 CursorPosition startPos = toPosition(offset);
                 size_t endOff = offset + toRemove;
                 CursorPosition oldEndPos = toPosition(endOff);
+                std::string deleted = pieceTable_.getRange(offset, endOff);
+
+                recordEdit(offset, deleted, "");
                 pieceTable_.remove(offset, toRemove);
+
                 CursorPosition newEndPos = toPosition(offset);
                 if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, endOff, offset, startPos, oldEndPos, newEndPos);
             }
         }
+        undoManager_.endGroup();
     }
 
     // ─── Bracket Matching ───────────────────────────────────────────────
@@ -1077,8 +1360,9 @@ public:
 
         size_t l = clampLine(line);
         std::string lineText = pieceTable_.getLine(l - 1);
+        size_t maxCol = utf8_util::utf16Length(lineText);
         size_t col = static_cast<size_t>(std::max(0.0, column));
-        col = std::min(col, lineText.size());
+        col = std::min(col, maxCol);
 
         return CursorPosition{static_cast<double>(l), static_cast<double>(col)};
     }
@@ -1088,7 +1372,7 @@ public:
         if (l < 1 || l > pieceTable_.lineCount()) return false;
         size_t col = static_cast<size_t>(column);
         std::string lineText = pieceTable_.getLine(l - 1);
-        return col <= lineText.size();
+        return col <= utf8_util::utf16Length(lineText);
     }
 
     std::vector<SyntaxToken> getSyntaxTokens(double startLine, double endLine) override {
@@ -1112,7 +1396,7 @@ public:
     // ─── Memory Size ────────────────────────────────────────────────────
 
     size_t getExternalMemorySize() noexcept override {
-        return pieceTable_.length() + sizeof(PieceTable) + sizeof(UndoManager);
+        return pieceTable_.length() + sizeof(PieceTable) + undoManager_.memorySize();
     }
 };
 

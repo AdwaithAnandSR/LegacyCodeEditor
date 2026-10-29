@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.anonymous.LegacyCodeEditor"
+      "bundleIdentifier": "com.adwaith.LegacyCodeEditor"
     },
     "android": {
       "adaptiveIcon": {
@@ -43,7 +43,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "7f34cae3-b89e-4695-b519-d5e4728c6589"
+        "projectId": "e7b0a8d0-51e9-436f-9afc-e577ee0e4d45"
       }
     }
   }

@@ -42,6 +42,58 @@ export interface VisibleRange {
 /** Callback fired when the canvas should repaint. */
 export type InvalidateCallback = () => void;
 
+// ── Tab and Visual Column Utilities ──────────────────────────────────────────
+
+export function columnToVisual(lineText: string, col: number, tabSize: number = 4): number {
+  if (!lineText) return col;
+  let visualCol = 0;
+  const maxCol = Math.min(col, lineText.length);
+  for (let i = 0; i < maxCol; i++) {
+    if (lineText[i] === '\t') {
+      visualCol += tabSize - (visualCol % tabSize);
+    } else {
+      visualCol += 1;
+    }
+  }
+  if (col > lineText.length) {
+    visualCol += (col - lineText.length);
+  }
+  return visualCol;
+}
+
+export function visualToColumn(lineText: string, visualCol: number, tabSize: number = 4): number {
+  if (!lineText || visualCol <= 0) return 0;
+  let curVisual = 0;
+  for (let i = 0; i < lineText.length; i++) {
+    const advance = lineText[i] === '\t' ? (tabSize - (curVisual % tabSize)) : 1;
+    if (curVisual + advance / 2 >= visualCol) {
+      return i;
+    }
+    curVisual += advance;
+    if (curVisual >= visualCol) {
+      return i + 1;
+    }
+  }
+  return lineText.length + Math.max(0, visualCol - curVisual);
+}
+
+export function expandTabs(lineText: string, tabSize: number = 4): string {
+  if (!lineText.includes('\t')) return lineText;
+  let result = "";
+  let visualCol = 0;
+  for (let i = 0; i < lineText.length; i++) {
+    if (lineText[i] === '\t') {
+      const spaces = tabSize - (visualCol % tabSize);
+      result += " ".repeat(spaces);
+      visualCol += spaces;
+    } else {
+      result += lineText[i];
+      visualCol++;
+    }
+  }
+  return result;
+}
+
 // ── Class ────────────────────────────────────────────────────────────────────
 
 export class EditorStateManager {
@@ -132,6 +184,10 @@ export class EditorStateManager {
     return this.selection;
   }
 
+  clearSelection() {
+    this.selection = null;
+  }
+
   // ── Scroll ───────────────────────────────────────────────────────────────
   scrollOffset: ScrollOffset = { x: 0, y: 0 };
 
@@ -154,6 +210,7 @@ export class EditorStateManager {
 
   // ── UI Subscription (for React overlays) ─────────────────────────────────
   private _uiListeners = new Set<() => void>();
+  private _lastMenuSnapshot = "";
 
   subscribeUI = (listener: () => void) => {
     this._uiListeners.add(listener);
@@ -163,7 +220,11 @@ export class EditorStateManager {
   };
 
   notifyUI() {
-    this._uiListeners.forEach((cb) => cb());
+    const current = this.floatingMenuSnapshot;
+    if (current !== this._lastMenuSnapshot) {
+      this._lastMenuSnapshot = current;
+      this._uiListeners.forEach((cb) => cb());
+    }
   }
 
   // ── Public API ───────────────────────────────────────────────────────────
@@ -199,6 +260,7 @@ export class EditorStateManager {
     this.cursorColumn = 0;
     this.selection = null;
     this.scrollOffset = { x: 0, y: 0 };
+    this.maxRenderedLineLength = 0;
     this.invalidate();
   }
 
@@ -275,6 +337,7 @@ export class EditorStateManager {
     this.selection = null;
     this.floatingMenuVisible = false;
     this.clearOSBuffer?.();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -460,6 +523,7 @@ export class EditorStateManager {
     });
 
     this.resetBlink();
+    this.scrollToCursor();
     this.invalidate();
   }
 
@@ -713,15 +777,21 @@ export class EditorStateManager {
     );
   }
 
+  getVisualColumn(line: number, column: number): number {
+    const rawLine = this.engine.getLine(line);
+    return columnToVisual(rawLine, column);
+  }
+
   /**
    * Compute the cursor X offset for the current column.
    * Uses character width (monospace font → all chars same width).
    */
   getCursorX(): number {
+    const visualCol = this.getVisualColumn(this.cursorLine, this.cursorColumn);
     return (
       EDITOR_THEME.gutterWidth +
       EDITOR_THEME.contentPaddingLeft +
-      this.cursorColumn * this.charWidth -
+      visualCol * this.charWidth -
       this.scrollOffset.x
     );
   }
@@ -745,11 +815,12 @@ export class EditorStateManager {
 
   // ── Tap-to-place-cursor ──────────────────────────────────────────────────
 
-  getCursorXFor(column: number): number {
+  getCursorXFor(column: number, line: number = this.cursorLine): number {
+    const visualCol = this.getVisualColumn(line, column);
     return (
       EDITOR_THEME.gutterWidth +
       EDITOR_THEME.contentPaddingLeft +
-      column * this.charWidth -
+      visualCol * this.charWidth -
       this.scrollOffset.x
     );
   }
@@ -758,12 +829,12 @@ export class EditorStateManager {
     if (!this.selection) return null;
     
     // Check start handle
-    const startX = this.getCursorXFor(this.selection.startColumn);
+    const startX = this.getCursorXFor(this.selection.startColumn, this.selection.startLine);
     const startY = this.getLineY(this.selection.startLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 15; // Center of teardrop
     const distStart = Math.hypot(canvasX - startX, canvasY - startY);
     
     // Check end handle
-    const endX = this.getCursorXFor(this.selection.endColumn);
+    const endX = this.getCursorXFor(this.selection.endColumn, this.selection.endLine);
     const endY = this.getLineY(this.selection.endLine) - this.scrollOffset.y + EDITOR_THEME.lineHeight + 15;
     const distEnd = Math.hypot(canvasX - endX, canvasY - endY);
     
@@ -826,8 +897,10 @@ export class EditorStateManager {
 
     // Compute column (only in content area, not gutter)
     const contentX = canvasX - gutterWidth - contentPaddingLeft + this.scrollOffset.x;
-    let col = Math.round(contentX / this.charWidth);
-    col = Math.max(0, col);
+    let visualCol = Math.max(0, Math.round(contentX / this.charWidth));
+
+    const lineText = this.engine.getLine(line);
+    let col = visualToColumn(lineText, visualCol);
 
     // Clamp column to line length
     const lineLen = this.engine.getLineLength(line);
@@ -1095,7 +1168,8 @@ export class EditorStateManager {
     if (this.charWidth > 0) {
       // 10% of the screen width margin means it will auto-scroll when the cursor crosses the 90% mark
       const SCROLL_MARGIN_X = Math.max(20, this.viewport.width * 0.1);
-      const textXOffset = this.cursorColumn * this.charWidth;
+      const visualCol = this.getVisualColumn(this.cursorLine, this.cursorColumn);
+      const textXOffset = visualCol * this.charWidth;
       const absoluteCursorX = EDITOR_THEME.gutterWidth + EDITOR_THEME.contentPaddingLeft + textXOffset;
       
       // Left boundary (prevent scrolling left text under the fixed gutter)
@@ -1118,6 +1192,8 @@ export class EditorStateManager {
 
   dispose() {
     this.stopBlink();
+    this.stopMomentumScroll();
     this._invalidate = null;
+    this._uiListeners.clear();
   }
 }

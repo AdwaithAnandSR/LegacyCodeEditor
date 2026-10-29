@@ -20,6 +20,7 @@ import {
   StyleSheet,
   View,
   TextInput,
+  AppState,
   type LayoutChangeEvent,
 } from "react-native";
 import {
@@ -51,6 +52,8 @@ export interface EditorCanvasProps {
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
+
+const INITIAL_PICTURE = createPicture(() => {}, { width: 1, height: 1 });
 
 export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   const [stateManager, setStateManager] = useState<EditorStateManager | null>(null);
@@ -128,15 +131,18 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
   // manager invalidates, we imperatively create a new picture and assign it.
   // Skia listens to this SharedValue and repaints on the GPU automatically,
   // without triggering a slow React re-render.
-  const pictureSV = useSharedValue<SkPicture>(
-    createPicture(() => {}, { width: 1, height: 1 })
-  );
+  const pictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
 
   useEffect(() => {
     if (resources) {
       stateManager.setCharWidth(resources.charWidth);
     }
-    const cleanup = stateManager.setInvalidate(() => {
+
+    let isDrawScheduled = false;
+    let animFrameId: number | null = null;
+
+    const performDraw = () => {
+      isDrawScheduled = false;
       const size = canvasSizeRef.current;
       if (resources && size.width > 0 && size.height > 0) {
         pictureSV.value = createEditorPicture(
@@ -146,10 +152,28 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
           size.height,
         );
       }
+    };
+
+    const cleanup = stateManager.setInvalidate(() => {
+      if (isDrawScheduled) return;
+      isDrawScheduled = true;
+      animFrameId = requestAnimationFrame(performDraw);
     });
+
     stateManager.startBlink();
+
+    const appStateSub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        stateManager.startBlink();
+      } else {
+        stateManager.stopBlink();
+      }
+    });
+
     return () => {
       cleanup();
+      if (animFrameId !== null) cancelAnimationFrame(animFrameId);
+      appStateSub.remove();
       stateManager.dispose();
       if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
     };

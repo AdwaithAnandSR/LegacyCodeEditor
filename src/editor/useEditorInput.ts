@@ -32,6 +32,7 @@ function getSentinelLength(str: string): number {
 
 export function useEditorInput(stateManager: EditorStateManager) {
   const inputRef = useRef<TextInput | null>(null);
+  const focusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // We alternate between two distinct long invisible strings
   const sentinelRef = useRef<string>(SENTINEL_A);
@@ -39,6 +40,15 @@ export function useEditorInput(stateManager: EditorStateManager) {
   const nativeTextRef = useRef<string>(SENTINEL_A); // Tracks the true OS buffer
   
   const isKeyboardVisible = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (focusTimeoutRef.current) {
+        clearTimeout(focusTimeoutRef.current);
+        focusTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const sub1 = Keyboard.addListener("keyboardDidShow", (e: KeyboardEvent) => {
@@ -88,7 +98,7 @@ export function useEditorInput(stateManager: EditorStateManager) {
   const handleTextChange = (text: string) => {
       if (text === "") {
         // OS respected clear and then user backspaced the sentinel
-        stateManager.backspace();
+        stateManager.backspace(1);
         clearInput();
         return;
       }
@@ -100,6 +110,19 @@ export function useEditorInput(stateManager: EditorStateManager) {
       const prevSentinel = getSentinelType(prevStr);
       if (textSentinel && prevSentinel && textSentinel !== prevSentinel) {
         prevStr = nativeTextRef.current;
+      }
+
+      // Pure deletion: new text is a prefix of the previous text
+      if (prevStr.startsWith(text) && text.length < prevStr.length) {
+        const deletedCount = prevStr.length - text.length;
+        stateManager.backspace(deletedCount);
+        lastTextRef.current = text;
+        nativeTextRef.current = text;
+        // Re-arm sentinel when it drops below 50 chars to avoid running out
+        if (text.length < 50) {
+          clearInput();
+        }
+        return;
       }
 
       let commonLen = 0;
@@ -114,24 +137,8 @@ export function useEditorInput(stateManager: EditorStateManager) {
 
       const prevSentinelLen = getSentinelLength(prevStr);
 
-      if (commonLen === text.length) {
-        // Text is a prefix of prevStr: user deleted from the end.
-        const deletedCount = prevStr.length - text.length;
-        if (deletedCount >= 50) {
-          // Bulk deleted sentinel in OS popup (e.g. Select All + Cut/Delete)
-          backspaceCount = Math.max(0, prevStr.length - prevSentinelLen);
-          forceReset = true;
-        } else {
-          // Normal backspace into the sentinel
-          backspaceCount = deletedCount;
-          // Only force reset if sentinel buffer is running low (< 20 chars remaining)
-          if (text.length < 20) {
-            forceReset = true;
-          }
-        }
-        diffStr = "";
-      } else if (commonLen < prevSentinelLen) {
-        // The sentinel itself was tampered with (e.g. user selected all and typed new text)
+      if (commonLen < prevSentinelLen) {
+        // The sentinel itself was replaced/tampered with (e.g. user selected all and typed new text)
         backspaceCount = Math.max(0, prevStr.length - prevSentinelLen);
         diffStr = text.replace(/[\u200B\u200C]/g, "");
         forceReset = true; // We must restore the sentinel!
@@ -162,12 +169,42 @@ export function useEditorInput(stateManager: EditorStateManager) {
 
   const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
       const { key } = e.nativeEvent;
+      const normSel = stateManager.getNormalizedSelection();
+
       switch (key) {
-        case "ArrowLeft": stateManager.moveCursorLeft(); break;
-        case "ArrowRight": stateManager.moveCursorRight(); break;
-        case "ArrowUp": stateManager.moveCursorUp(); break;
-        case "ArrowDown": stateManager.moveCursorDown(); break;
-        case "Tab": stateManager.insertAtCursor("    "); break;
+        case "ArrowLeft":
+          if (normSel) {
+            stateManager.setCursor(normSel.startLine, normSel.startColumn);
+            stateManager.scrollToCursor();
+            stateManager.invalidate();
+          } else {
+            stateManager.moveCursorLeft();
+          }
+          break;
+        case "ArrowRight":
+          if (normSel) {
+            stateManager.setCursor(normSel.endLine, normSel.endColumn);
+            stateManager.scrollToCursor();
+            stateManager.invalidate();
+          } else {
+            stateManager.moveCursorRight();
+          }
+          break;
+        case "ArrowUp":
+          if (normSel) {
+            stateManager.clearSelection();
+          }
+          stateManager.moveCursorUp();
+          break;
+        case "ArrowDown":
+          if (normSel) {
+            stateManager.clearSelection();
+          }
+          stateManager.moveCursorDown();
+          break;
+        case "Tab":
+          stateManager.indent();
+          break;
       }
     };
 
@@ -176,7 +213,11 @@ export function useEditorInput(stateManager: EditorStateManager) {
     if (input) {
       if (input.isFocused() && !isKeyboardVisible.current) {
         input.blur();
-        setTimeout(() => input.focus(), 10);
+        if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+        focusTimeoutRef.current = setTimeout(() => {
+          input.focus();
+          focusTimeoutRef.current = null;
+        }, 10);
       } else {
         input.focus();
       }

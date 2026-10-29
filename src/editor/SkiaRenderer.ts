@@ -20,6 +20,7 @@ import {
   type SkCanvas,
   type SkPicture,
   PaintStyle,
+  ClipOp,
   type SkPaint,
   type SkPath,
   type SkTypefaceFontProvider,
@@ -27,6 +28,7 @@ import {
   createPicture,
 } from "@shopify/react-native-skia";
 import type { EditorStateManager } from "./EditorStateManager";
+import { columnToVisual, expandTabs } from "./EditorStateManager";
 import { EDITOR_THEME } from "./theme";
 import type { SyntaxToken } from "editor-engine";
 
@@ -34,28 +36,13 @@ import type { SyntaxToken } from "editor-engine";
 import { TextAlign } from "@shopify/react-native-skia";
 
 function adjustTokensForTabs(rawLine: string, tokens: SyntaxToken[]): SyntaxToken[] {
-  let tabOffsets: number[] = [];
-  for (let i = 0; i < rawLine.length; i++) {
-    if (rawLine[i] === '\t') {
-      tabOffsets.push(i);
-    }
-  }
-  
-  if (tabOffsets.length === 0) return tokens;
+  if (!rawLine.includes('\t')) return tokens;
 
-  return tokens.map(token => {
-    let startOffset = 0;
-    let endOffset = 0;
-    for (const tabIdx of tabOffsets) {
-      if (tabIdx < token.startColumn) startOffset += 3; // 4 spaces - 1 tab = 3 extra chars
-      if (tabIdx < token.endColumn) endOffset += 3;
-    }
-    return {
-      ...token,
-      startColumn: token.startColumn + startOffset,
-      endColumn: token.endColumn + endOffset
-    };
-  });
+  return tokens.map(token => ({
+    ...token,
+    startColumn: columnToVisual(rawLine, token.startColumn),
+    endColumn: columnToVisual(rawLine, token.endColumn),
+  }));
 }
 
 // ── Cached Paints (allocated once at module load) ────────────────────────────
@@ -197,8 +184,9 @@ function getCachedLineParagraph(
   para.layout(1e6); // no wrapping
   
   lineParagraphCache.set(cacheKey, para);
-  if (lineParagraphCache.size > 5000) {
-    lineParagraphCache.clear();
+  if (lineParagraphCache.size > 500) {
+    const oldestKey = lineParagraphCache.keys().next().value;
+    if (oldestKey !== undefined) lineParagraphCache.delete(oldestKey);
   }
   return para;
 }
@@ -232,8 +220,9 @@ function getCachedLineNumberParagraph(
   para.layout(EDITOR_THEME.gutterWidth - EDITOR_THEME.gutterPaddingRight);
   
   lineNumberCache.set(cacheKey, para);
-  if (lineNumberCache.size > 1000) {
-    lineNumberCache.clear();
+  if (lineNumberCache.size > 500) {
+    const oldestKey = lineNumberCache.keys().next().value;
+    if (oldestKey !== undefined) lineNumberCache.delete(oldestKey);
   }
   return para;
 }
@@ -264,14 +253,7 @@ function drawEditorToCanvas(
   // ── 1. Clear background ────────────────────────────────────────────────
   canvas.drawPaint(PAINTS.background);
 
-  // ── 2. Draw fixed gutter background & border ───────────────────────────
-  canvas.drawRect(
-    Skia.XYWHRect(0, 0, gutterWidth, canvasHeight),
-    PAINTS.gutterBg,
-  );
-  canvas.drawLine(gutterWidth, 0, gutterWidth, canvasHeight, PAINTS.gutterBorder);
-
-  // ── 3. Compute visible range for mathematical virtualization ───────────
+  // ── 2. Compute visible range for mathematical virtualization ───────────
   const { firstLine, lastLine } = state.getVisibleRange();
   
   const syntaxTokens = state.engine.getSyntaxTokens(firstLine, lastLine);
@@ -295,14 +277,17 @@ function drawEditorToCanvas(
     visibleCharCount = Math.ceil(contentAreaWidth / charWidth) + OVERSCAN_X * 2;
   }
 
-  // Apply Hardware Canvas Translation for vertical scrolling.
-  // We do NOT translate X globally because the gutter must stay fixed on the left!
+  // ── 3. Draw content pass (clipped to content area: solves Bug 4 text over gutter) ─
   canvas.save();
+  canvas.clipRect(
+    Skia.XYWHRect(gutterWidth, 0, Math.max(0, canvasWidth - gutterWidth), canvasHeight),
+    ClipOp.Intersect,
+    false,
+  );
   canvas.translate(0, -state.scrollOffset.y);
 
-  // ── 4. Draw current line highlight ─────────────────────────────────────
+  // ── Current line highlight ─────────────────────────────────────
   const cursorLineY = state.getLineY(state.cursorLine);
-  // Check against translated viewport bounds
   if (
     cursorLineY + lineHeight >= state.scrollOffset.y && 
     cursorLineY <= state.scrollOffset.y + canvasHeight
@@ -318,7 +303,7 @@ function drawEditorToCanvas(
     );
   }
 
-  // ── 4.5 Draw selection background ──────────────────────────────────────
+  // ── Selection background ──────────────────────────────────────
   if (state.selection && charWidth > 0 && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn)) {
     const { startLine, startColumn, endLine, endColumn } = state.selection;
     let sLine = startLine, sCol = startColumn, eLine = endLine, eCol = endColumn;
@@ -338,12 +323,15 @@ function drawEditorToCanvas(
       const isFirst = lineNum === sLine;
       const isLast = lineNum === eLine;
 
+      const rawLine = state.engine.getLine(lineNum);
       const colStart = isFirst ? sCol : 0;
       let colEnd = isLast ? eCol : state.engine.getLineLength(lineNum) + 1; // +1 for newline
 
       if (colEnd > colStart) {
-        const textXStart = gutterWidth + contentPaddingLeft + (colStart * charWidth) - state.scrollOffset.x;
-        const width = (colEnd - colStart) * charWidth;
+        const visualColStart = columnToVisual(rawLine, colStart);
+        const visualColEnd = columnToVisual(rawLine, colEnd);
+        const textXStart = gutterWidth + contentPaddingLeft + (visualColStart * charWidth) - state.scrollOffset.x;
+        const width = (visualColEnd - visualColStart) * charWidth;
 
         let drawX = textXStart;
         let drawWidth = width;
@@ -362,29 +350,18 @@ function drawEditorToCanvas(
     }
   }
 
-  // ── 5. Draw visible lines ──────────────────────────────────────────────
+  // ── Visible lines text ──────────────────────────────────────────────
   for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
     const y = state.getLineY(lineNum);
     const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
 
-    // -- Line number (Draws at fixed X=0, but translated Y)
-    const lineNumPara = getCachedLineNumberParagraph(
-      lineNum,
-      lineNum === state.cursorLine,
-      fontProvider,
-    );
-    lineNumPara.paint(canvas, 0, textY);
-
-    // -- Line text (Horizontal Virtualization)
     const rawLine = state.engine.getLine(lineNum);
+    const lineText = expandTabs(rawLine);
     
-    // Update dynamic horizontal scroll bounds (mutating during render is standard for loose boundary caches)
-    if (rawLine.length > state.maxRenderedLineLength) {
-      state.maxRenderedLineLength = rawLine.length;
+    // Update dynamic horizontal scroll bounds
+    if (lineText.length > state.maxRenderedLineLength) {
+      state.maxRenderedLineLength = lineText.length;
     }
-
-    // Standardize tabs to 4 spaces to guarantee mathematical monospace alignment
-    const lineText = rawLine.includes('\t') ? rawLine.replace(/\t/g, "    ") : rawLine;
 
     if (charWidth > 0 && lineText.length > firstCharIndex) {
       const lastCharIndex = firstCharIndex + visibleCharCount;
@@ -444,18 +421,13 @@ function drawEditorToCanvas(
       const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
       para.paint(canvas, textX, textY);
     }
-    // If charWidth > 0 but lineText.length <= firstCharIndex, the line is 
-    // entirely scrolled off-screen to the left! We optimally draw nothing.
   }
 
-  // ── 6. Draw cursor ────────────────────────────────────────────────────
+  // ── Cursor ────────────────────────────────────────────────────
   const hasRangeSelection = state.selection && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn);
   const isZeroWidthSelection = state.selection && !hasRangeSelection;
   
   if ((state.cursorVisible || isZeroWidthSelection) && !hasRangeSelection) {
-    // getCursorX() subtracts scrollOffset.x, making it a screen coordinate.
-    // getCursorY() calls getLineY(), making it an absolute document coordinate.
-    // This perfectly matches our hybrid translated canvas.
     const cx = state.getCursorX();
     const cy = state.getCursorY();
 
@@ -469,8 +441,6 @@ function drawEditorToCanvas(
         PAINTS.cursor,
       );
       
-      // If there is an active 0-width selection (e.g. they tapped the cursor or long pressed),
-      // draw the teardrop handle underneath so they can drag it or tap it for the menu.
       if (state.selection) {
         canvas.save();
         canvas.translate(cx + cursorWidth / 2, cy + lineHeight + 15);
@@ -480,20 +450,17 @@ function drawEditorToCanvas(
     }
   }
 
-  // ── 7. Draw selection handles ──────────────────────────────────────────
+  // ── Selection handles ──────────────────────────────────────────
   if (state.selection && charWidth > 0 && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn)) {
-    const startX = state.getCursorXFor(state.selection.startColumn);
+    const startX = state.getCursorXFor(state.selection.startColumn, state.selection.startLine);
     const startY = state.getLineY(state.selection.startLine);
-    const endX = state.getCursorXFor(state.selection.endColumn);
+    const endX = state.getCursorXFor(state.selection.endColumn, state.selection.endLine);
     const endY = state.getLineY(state.selection.endLine);
 
     const drawHandle = (x: number, y: number) => {
         if (y + lineHeight >= state.scrollOffset.y && y <= state.scrollOffset.y + canvasHeight && x >= gutterWidth) {
             canvas.drawRect(Skia.XYWHRect(x, y, cursorWidth, lineHeight), PAINTS.handle);
-            
-            // Draw the water drop shape at the bottom of the cursor line
             canvas.save();
-            // Translate so (0,0) is at the center of the teardrop bulb
             canvas.translate(x + cursorWidth / 2, y + lineHeight + 15);
             canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
             canvas.restore();
@@ -503,6 +470,27 @@ function drawEditorToCanvas(
     drawHandle(endX, endY);
   }
 
+  canvas.restore();
+
+  // ── 4. Draw fixed gutter background, border & line numbers on top ──────────
+  canvas.drawRect(
+    Skia.XYWHRect(0, 0, gutterWidth, canvasHeight),
+    PAINTS.gutterBg,
+  );
+  canvas.drawLine(gutterWidth, 0, gutterWidth, canvasHeight, PAINTS.gutterBorder);
+
+  canvas.save();
+  canvas.translate(0, -state.scrollOffset.y);
+  for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
+    const y = state.getLineY(lineNum);
+    const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
+    const lineNumPara = getCachedLineNumberParagraph(
+      lineNum,
+      lineNum === state.cursorLine,
+      fontProvider,
+    );
+    lineNumPara.paint(canvas, 0, textY);
+  }
   canvas.restore();
 }
 
