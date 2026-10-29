@@ -14,16 +14,20 @@ import Animated, {
 import { EDITOR_THEME } from "./theme";
 
 export interface CursorOverlayProps {
-  x: SharedValue<number>;
-  y: SharedValue<number>;
+  docX: SharedValue<number>;
+  docY: SharedValue<number>;
+  scrollX: SharedValue<number>;
+  scrollY: SharedValue<number>;
   visible: SharedValue<boolean>;
   active?: boolean;
   activityCount: SharedValue<number>;
 }
 
 export function CursorOverlay({
-  x,
-  y,
+  docX,
+  docY,
+  scrollX,
+  scrollY,
   visible,
   active = true,
   activityCount,
@@ -81,11 +85,14 @@ export function CursorOverlay({
   );
 
   const animatedStyle = useAnimatedStyle(() => {
+    const screenX = docX.value - scrollX.value;
+    const screenY = docY.value - scrollY.value;
+    const isBehindGutter = screenX < EDITOR_THEME.gutterWidth;
     return {
-      opacity: visible.value ? opacity.value : 0,
+      opacity: visible.value && !isBehindGutter ? opacity.value : 0,
       transform: [
-        { translateX: x.value },
-        { translateY: y.value },
+        { translateX: screenX },
+        { translateY: screenY },
       ],
     };
   });

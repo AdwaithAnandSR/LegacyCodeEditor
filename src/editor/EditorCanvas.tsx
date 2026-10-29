@@ -4,18 +4,13 @@
  * This component is thin glue:
  *   1. Initialises the EditorStateManager (via useState lazy initializer)
  *   2. Loads fonts and creates SkiaRendererResources (via useMemo)
- *   3. Renders a <Canvas> with a <Picture> for imperative Skia drawing
- *   4. Overlays a hidden <TextInput> for keyboard input
- *   5. Wraps in <GestureDetector> for scroll & tap
- *
- * React re-renders are minimal:
- *   - Once when fonts finish loading
- *   - On each invalidate() — but the work done is just creating a new
- *     SkPicture (cheap: just recording draw commands) and updating
- *     a counter state. The actual GPU rendering is done by Skia.
+ *   3. Renders a <Canvas> with windowed Picture layers for 60/120fps imperative GPU drawing
+ *   4. Translates content & gutter layers via Reanimated UI-thread SharedValues
+ *   5. Overlays a hidden <TextInput> for keyboard input
+ *   6. Wraps in <GestureDetector> for UI-thread scroll & gestures
  */
 
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -26,16 +21,24 @@ import {
 import {
   Canvas,
   Picture,
+  Group,
+  Rect,
+  Line,
   useFonts,
   createPicture,
 } from "@shopify/react-native-skia";
 import { GestureDetector } from "react-native-gesture-handler";
-import { useSharedValue } from "react-native-reanimated";
+import {
+  useSharedValue,
+  useDerivedValue,
+  useAnimatedReaction,
+  runOnJS,
+} from "react-native-reanimated";
 import type { SkPicture } from "@shopify/react-native-skia";
 
 import { EditorStateManager } from "./EditorStateManager";
 import {
-  createEditorPicture,
+  createEditorPictures,
   createRendererResources,
 } from "./SkiaRenderer";
 import { useEditorInput, SENTINEL } from "./useEditorInput";
@@ -83,12 +86,6 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
   });
 
   // ── 3. Build renderer resources once fonts are ready ───────────────────
-  // DO NOT REMOVE THIS useMemo:
-  // resources requires a strictly stable object identity because it is a dependency of the primary canvas
-  // lifecycle effect below. Without useMemo, every re-render (layout, orientation, parent update) produces
-  // a new object reference, triggering the effect teardown which executes stateManager.dispose().
-  // That unnecessarily kills the cursor blink interval and Skia invalidation listeners. Additionally,
-  // this prevents repeated measurement of monospace character width via Skia C++ paragraph layout.
   const resources = useMemo(
     () => (fontProvider ? createRendererResources(fontProvider) : null),
     [fontProvider]
@@ -96,55 +93,100 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
 
   // ── 4. Canvas size tracking (via ref to avoid stale closures) ────────
   const canvasSizeRef = useRef({ width: 0, height: 0 });
+  const [canvasLayout, setCanvasLayout] = useState({ width: 0, height: 0 });
   const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleLayout = (e: LayoutChangeEvent) => {
-      const { width, height } = e.nativeEvent.layout;
-      
-      const widthChanged = canvasSizeRef.current.width !== width;
-      const heightChanged = canvasSizeRef.current.height !== height;
+    const { width, height } = e.nativeEvent.layout;
 
-      if (!widthChanged && !heightChanged) {
-        return;
-      }
-      
-      canvasSizeRef.current = { width, height };
-      stateManager.setViewport(width, height);
-      
-      if (widthChanged) {
-        // Always redraw immediately on width changes (like orientation change)
-        if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
+    const widthChanged = canvasSizeRef.current.width !== width;
+    const heightChanged = canvasSizeRef.current.height !== height;
+
+    if (!widthChanged && !heightChanged) {
+      return;
+    }
+
+    canvasSizeRef.current = { width, height };
+    setCanvasLayout({ width, height });
+    stateManager.setViewport(width, height);
+
+    if (widthChanged) {
+      if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
+      stateManager.scrollToCursor(false);
+      stateManager.invalidate();
+    } else if (heightChanged) {
+      if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
+      layoutTimeoutRef.current = setTimeout(() => {
         stateManager.scrollToCursor(false);
         stateManager.invalidate();
-      } else if (heightChanged) {
-        // Debounce height changes to avoid FPS drops during keyboard animations
-        if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
-        layoutTimeoutRef.current = setTimeout(() => {
-          stateManager.scrollToCursor(false);
-          stateManager.invalidate();
-        }, 50);
-      }
-    };
+      }, 50);
+    }
+  };
 
-  // ── 5. Redraw trigger (Bypasses React entirely!) ───────────────────────
-  const pictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
+  // ── 5. UI-Thread Scroll & Windowed Picture State ────────────────────────
+  const scrollX = useSharedValue(0);
+  const scrollY = useSharedValue(0);
+  const maxScrollX = useSharedValue(0);
+  const maxScrollY = useSharedValue(0);
 
-  // ── 5b. UI-Thread Cursor Overlay State ────────────────────────────────
-  const cursorX = useSharedValue(0);
-  const cursorY = useSharedValue(0);
+  const contentPictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
+  const gutterPictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
+
+  const cursorDocX = useSharedValue(0);
+  const cursorDocY = useSharedValue(0);
   const cursorVisible = useSharedValue(false);
   const cursorActivity = useSharedValue(0);
+  const lastRecordedFirstLine = useSharedValue(1);
+
   const [isAppActive, setIsAppActive] = useState(true);
 
+  // UI-thread GPU transforms
+  const contentTransform = useDerivedValue(() => [
+    { translateX: -scrollX.value },
+    { translateY: -scrollY.value },
+  ]);
+
+  const gutterTransform = useDerivedValue(() => [
+    { translateY: -scrollY.value },
+  ]);
+
+  const contentClipRect = useMemo(
+    () => ({
+      x: EDITOR_THEME.gutterWidth,
+      y: 0,
+      width: Math.max(0, canvasLayout.width - EDITOR_THEME.gutterWidth),
+      height: canvasLayout.height,
+    }),
+    [canvasLayout.width, canvasLayout.height]
+  );
+
+  const gutterClipRect = useMemo(
+    () => ({
+      x: 0,
+      y: 0,
+      width: EDITOR_THEME.gutterWidth,
+      height: canvasLayout.height,
+    }),
+    [canvasLayout.height]
+  );
+
+  const gutterBorderP1 = useMemo(() => ({ x: EDITOR_THEME.gutterWidth, y: 0 }), []);
+  const gutterBorderP2 = useMemo(
+    () => ({ x: EDITOR_THEME.gutterWidth, y: canvasLayout.height }),
+    [canvasLayout.height]
+  );
+
   useEffect(() => {
+    stateManager.setScrollSharedValues(scrollX, scrollY, maxScrollX, maxScrollY);
+
     if (resources) {
       stateManager.setCharWidth(resources.charWidth);
     }
 
     const syncCursor = () => {
-      const pos = stateManager.getCursorScreenPosition();
-      cursorX.value = pos.x;
-      cursorY.value = pos.y;
+      const pos = stateManager.getCursorDocPosition();
+      cursorDocX.value = pos.docX;
+      cursorDocY.value = pos.docY;
       cursorVisible.value = pos.visible;
     };
 
@@ -155,11 +197,23 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       isDrawScheduled = false;
       const size = canvasSizeRef.current;
       if (resources && size.width > 0 && size.height > 0) {
-        pictureSV.value = createEditorPicture(
+        const windowRange = stateManager.getWindowedRange(25);
+        const pictures = createEditorPictures(
           stateManager,
           resources,
           size.width,
           size.height,
+          windowRange.firstLine,
+          windowRange.lastLine,
+        );
+        contentPictureSV.value = pictures.contentPicture;
+        gutterPictureSV.value = pictures.gutterPicture;
+        lastRecordedFirstLine.value = Math.max(
+          1,
+          Math.floor(
+            Math.max(0, scrollY.value - EDITOR_THEME.contentPaddingTop) /
+              EDITOR_THEME.lineHeight
+          ) + 1
         );
       }
       syncCursor();
@@ -177,8 +231,9 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       cursorActivity.value = cursorActivity.value + 1;
     });
 
-    // Initial position sync
+    // Initial position sync and draw
     syncCursor();
+    performDraw();
 
     const appStateSub = AppState.addEventListener("change", (nextState) => {
       setIsAppActive(nextState === "active");
@@ -191,14 +246,62 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       stateManager.dispose();
       if (layoutTimeoutRef.current) clearTimeout(layoutTimeoutRef.current);
     };
-  }, [stateManager, pictureSV, resources, cursorX, cursorY, cursorVisible, cursorActivity]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateManager, resources]);
+
+  // Window shift reaction: re-record pictures when scrolling crosses window buffer bounds
+  const triggerWindowShift = useCallback(() => {
+    const size = canvasSizeRef.current;
+    if (resources && size.width > 0 && size.height > 0) {
+      const windowRange = stateManager.getWindowedRange(25);
+      const pictures = createEditorPictures(
+        stateManager,
+        resources,
+        size.width,
+        size.height,
+        windowRange.firstLine,
+        windowRange.lastLine,
+      );
+      // eslint-disable-next-line react-hooks/immutability
+      contentPictureSV.value = pictures.contentPicture;
+      // eslint-disable-next-line react-hooks/immutability
+      gutterPictureSV.value = pictures.gutterPicture;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateManager, resources]);
+
+  useAnimatedReaction(
+    () => {
+      const firstVis = Math.floor(
+        Math.max(0, scrollY.value - EDITOR_THEME.contentPaddingTop) /
+          EDITOR_THEME.lineHeight
+      ) + 1;
+      return Math.max(1, firstVis);
+    },
+    (currentFirstLine) => {
+      "worklet";
+      if (Math.abs(currentFirstLine - lastRecordedFirstLine.value) >= 15) {
+        // eslint-disable-next-line react-hooks/immutability
+        lastRecordedFirstLine.value = currentFirstLine;
+        runOnJS(triggerWindowShift)();
+      }
+    },
+    [triggerWindowShift]
+  );
 
   // ── 6. Input hook ──────────────────────────────────────────────────────
   const { inputRef, handleTextChange, handleKeyPress, focus } =
     useEditorInput(stateManager);
 
-  // ── 7. Scroll / tap gesture ────────────────────────────────────────────
-  const { gesture } = useEditorScroll(stateManager, focus);
+  // ── 7. Scroll / tap gesture (UI-thread momentum) ────────────────────────
+  const { gesture } = useEditorScroll({
+    stateManager,
+    scrollX,
+    scrollY,
+    maxScrollX,
+    maxScrollY,
+    onTap: focus,
+  });
 
   // ── 8. Loading state ──────────────────────────────────────────────────
   if (!fontProvider || !resources) {
@@ -211,12 +314,34 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       <GestureDetector gesture={gesture}>
         <View style={styles.container} onLayout={handleLayout}>
           <Canvas style={StyleSheet.absoluteFill}>
-            <Picture picture={pictureSV} />
+            <Group clip={contentClipRect} transform={contentTransform}>
+              <Picture picture={contentPictureSV} />
+            </Group>
+
+            <Rect
+              x={0}
+              y={0}
+              width={EDITOR_THEME.gutterWidth}
+              height={canvasLayout.height}
+              color={EDITOR_THEME.gutterBackground}
+            />
+            <Line
+              p1={gutterBorderP1}
+              p2={gutterBorderP2}
+              color={EDITOR_THEME.gutterBorder}
+              strokeWidth={1}
+            />
+
+            <Group clip={gutterClipRect} transform={gutterTransform}>
+              <Picture picture={gutterPictureSV} />
+            </Group>
           </Canvas>
 
           <CursorOverlay
-            x={cursorX}
-            y={cursorY}
+            docX={cursorDocX}
+            docY={cursorDocY}
+            scrollX={scrollX}
+            scrollY={scrollY}
             visible={cursorVisible}
             active={isAppActive}
             activityCount={cursorActivity}

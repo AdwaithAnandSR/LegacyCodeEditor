@@ -1,5 +1,11 @@
 import { Gesture } from "react-native-gesture-handler";
 import type { ComposedGestureType } from "react-native-gesture-handler/lib/typescript/handlers/gestures/gestureComposition";
+import {
+  cancelAnimation,
+  withDecay,
+  runOnJS,
+  type SharedValue,
+} from "react-native-reanimated";
 import type { EditorStateManager } from "./EditorStateManager";
 
 export interface GestureSessionState {
@@ -36,110 +42,177 @@ export interface CreateEditorGesturesOptions {
   stateManager: EditorStateManager;
   state: GestureSessionState;
   directionalLockEnabled: boolean;
+  scrollX: SharedValue<number>;
+  scrollY: SharedValue<number>;
+  maxScrollX: SharedValue<number>;
+  maxScrollY: SharedValue<number>;
+  startScrollX: SharedValue<number>;
+  startScrollY: SharedValue<number>;
+  scrollLock: SharedValue<'none' | 'horizontal' | 'vertical'>;
+  isScrolling: SharedValue<boolean>;
+  isDraggingHandle: SharedValue<boolean>;
   onTap?: () => void;
 }
 
-/**
- * Pure non-hook factory that wires React Native Gesture Handler builder callbacks
- * to the imperative EditorStateManager.
- *
- * Extracted from useEditorScroll to isolate RNGH event callbacks from React hook
- * static analysis, preserving exact 60/120 FPS imperative gesture handling.
- */
 export function createEditorGestures({
   stateManager,
   state,
   directionalLockEnabled,
+  scrollX,
+  scrollY,
+  maxScrollX,
+  maxScrollY,
+  startScrollX,
+  startScrollY,
+  scrollLock,
+  isScrolling,
+  isDraggingHandle,
   onTap,
 }: CreateEditorGesturesOptions): ComposedGestureType {
-  const panGesture = Gesture.Pan()
-    .onBegin((e) => {
-      state.wasScrolling = stateManager.isMomentumScrolling();
-      stateManager.stopMomentumScroll();
-      const handle = stateManager.getHandleAt(e.x, e.y);
+  const checkIfOnHandle = (x: number, y: number) => {
+    const handle = stateManager.getHandleAt(x, y);
+    if (handle) {
+      stateManager.activeHandle = handle;
+      stateManager.isDraggingSelection = true;
+      isDraggingHandle.value = true;
+    } else {
+      isDraggingHandle.value = false;
+    }
+  };
+
+  const handleDragUpdate = (x: number, y: number) => {
+    stateManager.handleHandleDrag(x, y);
+  };
+
+  const handleDragEnd = () => {
+    stateManager.activeHandle = null;
+    stateManager.isDraggingSelection = false;
+    stateManager.invalidate();
+  };
+
+  const handleTapOnJS = (x: number, y: number) => {
+    state.startedInMenu = stateManager.isPointInFloatingMenu(x, y);
+    if (state.startedInMenu) return;
+
+    if (!state.wasScrolling) {
+      const handle = stateManager.getHandleAt(x, y);
       if (handle) {
-        stateManager.activeHandle = handle;
-      }
-    })
-    .onStart((e) => {
-      state.gestureOwner = 'pan';
-      if (stateManager.activeHandle) {
-        stateManager.isDraggingSelection = true;
-        return;
-      }
-      stateManager.isFingerScrolling = true;
-      state.panStartY = stateManager.scrollOffset.y;
-      state.panStartX = stateManager.scrollOffset.x;
-      state.panStartTranslation = { x: e.translationX, y: e.translationY };
-      state.scrollLock = 'none';
-      state.frozenX = 0;
-      state.frozenY = 0;
-    })
-    .onUpdate((e) => {
-      if (stateManager.activeHandle) {
-        stateManager.handleHandleDrag(e.x, e.y);
-        return;
-      }
-      const activeTranslationY = e.translationY - state.panStartTranslation.y;
-      const activeTranslationX = e.translationX - state.panStartTranslation.x;
-
-      if (directionalLockEnabled && state.scrollLock === 'none') {
-        const dx = Math.abs(activeTranslationX);
-        const dy = Math.abs(activeTranslationY);
-
-        if (dx > 3 || dy > 3) {
-          state.scrollLock = dx > dy ? 'horizontal' : 'vertical';
-          state.frozenX = activeTranslationX;
-          state.frozenY = activeTranslationY;
-        }
-      }
-
-      const newY = state.scrollLock === 'horizontal'
-        ? state.panStartY - state.frozenY
-        : state.panStartY - activeTranslationY;
-
-      const newX = state.scrollLock === 'vertical'
-        ? state.panStartX - state.frozenX
-        : state.panStartX - activeTranslationX;
-
-      stateManager.scrollOffset = {
-        x: Math.max(0, Math.min(stateManager.maxScrollX, newX)),
-        y: Math.max(0, Math.min(stateManager.maxScrollY, newY)),
-      };
-      stateManager.invalidate();
-    })
-    .onEnd((e) => {
-      if (stateManager.activeHandle) {
-        stateManager.activeHandle = null;
-        stateManager.isDraggingSelection = false;
+        stateManager.floatingMenuVisible = true;
         stateManager.invalidate();
         return;
       }
-      stateManager.isFingerScrolling = false;
-      const velX = state.scrollLock === 'vertical' ? 0 : e.velocityX;
-      const velY = state.scrollLock === 'horizontal' ? 0 : e.velocityY;
-      stateManager.startMomentumScroll(velX, velY);
+
+      const now = Date.now();
+      const dx = Math.abs(x - state.lastTap.x);
+      const dy = Math.abs(y - state.lastTap.y);
+
+      // Detect double tap: within 300ms and finger didn't move too far
+      if (now - state.lastTap.time < 300 && dx < 30 && dy < 30) {
+        stateManager.handleWordSelection(x, y);
+        state.lastTap.time = 0;
+      } else {
+        stateManager.handleTap(x, y);
+        state.lastTap = { time: now, x, y };
+      }
+
+      onTap?.();
+    }
+  };
+
+  // 1. UI-Thread Momentum Scrolling Pan Gesture
+  const panGesture = Gesture.Pan()
+    .onBegin((e) => {
+      "worklet";
+      cancelAnimation(scrollX);
+      cancelAnimation(scrollY);
+      runOnJS(checkIfOnHandle)(e.x, e.y);
+    })
+    .onStart(() => {
+      "worklet";
+      startScrollX.value = scrollX.value;
+      startScrollY.value = scrollY.value;
+      scrollLock.value = 'none';
+      isScrolling.value = true;
+    })
+    .onUpdate((e) => {
+      "worklet";
+      if (isDraggingHandle.value) {
+        runOnJS(handleDragUpdate)(e.x, e.y);
+        return;
+      }
+
+      let activeDx = e.translationX;
+      let activeDy = e.translationY;
+
+      if (directionalLockEnabled && scrollLock.value === 'none') {
+        const dx = Math.abs(activeDx);
+        const dy = Math.abs(activeDy);
+        if (dx > 4 || dy > 4) {
+          scrollLock.value = dx > dy ? 'horizontal' : 'vertical';
+        }
+      }
+
+      if (scrollLock.value === 'vertical') {
+        activeDx = 0;
+      } else if (scrollLock.value === 'horizontal') {
+        activeDy = 0;
+      }
+
+      const targetX = startScrollX.value - activeDx;
+      const targetY = startScrollY.value - activeDy;
+
+      scrollX.value = Math.max(0, Math.min(maxScrollX.value, targetX));
+      scrollY.value = Math.max(0, Math.min(maxScrollY.value, targetY));
+    })
+    .onEnd((e) => {
+      "worklet";
+      if (isDraggingHandle.value) {
+        isDraggingHandle.value = false;
+        runOnJS(handleDragEnd)();
+        return;
+      }
+
+      const velX = scrollLock.value === 'vertical' ? 0 : e.velocityX;
+      const velY = scrollLock.value === 'horizontal' ? 0 : e.velocityY;
+
+      if (Math.abs(velX) > 60) {
+        scrollX.value = withDecay({
+          velocity: -velX,
+          clamp: [0, maxScrollX.value],
+        });
+      }
+      if (Math.abs(velY) > 60) {
+        scrollY.value = withDecay(
+          {
+            velocity: -velY,
+            clamp: [0, maxScrollY.value],
+          },
+          (finished) => {
+            "worklet";
+            if (finished) isScrolling.value = false;
+          }
+        );
+      } else {
+        isScrolling.value = false;
+      }
     })
     .onFinalize(() => {
-      stateManager.isFingerScrolling = false;
-      if (state.gestureOwner === 'pan') {
-        if (stateManager.activeHandle) {
-          stateManager.activeHandle = null;
-          stateManager.isDraggingSelection = false;
-        }
-        state.gestureOwner = null;
+      "worklet";
+      if (isDraggingHandle.value) {
+        isDraggingHandle.value = false;
+        runOnJS(handleDragEnd)();
       }
-      stateManager.invalidate();
     })
-    .minDistance(5)
-    .runOnJS(true);
+    .minDistance(5);
 
+  // 2. Long-Press Selection Gesture
   const selectionPanGesture = Gesture.Pan()
     .activateAfterLongPress(300)
     .onStart((e) => {
       state.gestureOwner = 'selection';
-      state.wasScrolling = stateManager.isMomentumScrolling();
-      stateManager.stopMomentumScroll();
+      state.wasScrolling = isScrolling.value;
+      cancelAnimation(scrollX);
+      cancelAnimation(scrollY);
 
       const handle = stateManager.getHandleAt(e.x, e.y);
       if (handle) {
@@ -148,7 +221,6 @@ export function createEditorGestures({
         return;
       }
 
-      // If they are touching exactly on the active zero-width cursor, don't trigger a new word selection.
       const pos = stateManager.getLineColumn(e.x, e.y);
       if (
         stateManager.selection &&
@@ -192,39 +264,17 @@ export function createEditorGestures({
     })
     .runOnJS(true);
 
+  // 3. Instant Tap Gesture
   const tapGesture = Gesture.Tap()
-    .onBegin((e) => {
-      state.startedInMenu = stateManager.isPointInFloatingMenu(e.x, e.y);
-      state.startedOnHandle = !!stateManager.getHandleAt(e.x, e.y);
-      state.wasScrolling = stateManager.isMomentumScrolling();
-      stateManager.stopMomentumScroll();
+    .onBegin(() => {
+      "worklet";
+      state.wasScrolling = isScrolling.value;
+      cancelAnimation(scrollX);
+      cancelAnimation(scrollY);
     })
     .onEnd((e) => {
-      if (state.startedInMenu) return;
-      if (!state.wasScrolling) {
-        if (state.startedOnHandle) {
-          stateManager.floatingMenuVisible = true;
-          stateManager.invalidate();
-          return;
-        }
-
-        const now = Date.now();
-        const dx = Math.abs(e.x - state.lastTap.x);
-        const dy = Math.abs(e.y - state.lastTap.y);
-
-        // Detect double tap: within 300ms and finger didn't move too far
-        if (now - state.lastTap.time < 300 && dx < 30 && dy < 30) {
-          stateManager.handleWordSelection(e.x, e.y);
-          state.lastTap.time = 0; // Reset so a 3rd tap starts over
-        } else {
-          stateManager.handleTap(e.x, e.y);
-          state.lastTap = { time: now, x: e.x, y: e.y };
-        }
-
-        onTap?.();
-      }
-    })
-    .runOnJS(true);
+      runOnJS(handleTapOnJS)(e.x, e.y);
+    });
 
   return Gesture.Exclusive(selectionPanGesture, panGesture, tapGesture);
 }

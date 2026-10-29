@@ -16,6 +16,8 @@
  */
 
 import { createEditorEngine, type EditorEngine, type TextRange } from "editor-engine";
+import type { SharedValue } from "react-native-reanimated";
+import { withTiming, cancelAnimation } from "react-native-reanimated";
 import { EDITOR_THEME } from "./theme";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -188,8 +190,47 @@ export class EditorStateManager {
     this.selection = null;
   }
 
-  // ── Scroll ───────────────────────────────────────────────────────────────
-  scrollOffset: ScrollOffset = { x: 0, y: 0 };
+  // ── Scroll & Reanimated Shared Values ───────────────────────────────────
+  private _scrollOffsetInternal: ScrollOffset = { x: 0, y: 0 };
+  private _scrollXShared: SharedValue<number> | null = null;
+  private _scrollYShared: SharedValue<number> | null = null;
+  private _maxScrollXShared: SharedValue<number> | null = null;
+  private _maxScrollYShared: SharedValue<number> | null = null;
+
+  get scrollOffset(): ScrollOffset {
+    if (this._scrollXShared && this._scrollYShared) {
+      return { x: this._scrollXShared.value, y: this._scrollYShared.value };
+    }
+    return this._scrollOffsetInternal;
+  }
+
+  set scrollOffset(val: ScrollOffset) {
+    this._scrollOffsetInternal = val;
+    if (this._scrollXShared) this._scrollXShared.value = val.x;
+    if (this._scrollYShared) this._scrollYShared.value = val.y;
+  }
+
+  setScrollSharedValues(
+    scrollX: SharedValue<number>,
+    scrollY: SharedValue<number>,
+    maxScrollX: SharedValue<number>,
+    maxScrollY: SharedValue<number>,
+  ) {
+    this._scrollXShared = scrollX;
+    this._scrollYShared = scrollY;
+    this._maxScrollXShared = maxScrollX;
+    this._maxScrollYShared = maxScrollY;
+    this.updateMaxScrollShared();
+  }
+
+  updateMaxScrollShared() {
+    if (this._maxScrollXShared) {
+      this._maxScrollXShared.value = this.maxScrollX;
+    }
+    if (this._maxScrollYShared) {
+      this._maxScrollYShared.value = this.maxScrollY;
+    }
+  }
 
   // ── Viewport (set by the canvas on layout) ───────────────────────────────
   viewport: ViewportInfo = { height: 0, width: 0 };
@@ -252,6 +293,7 @@ export class EditorStateManager {
 
   /** Notify the canvas that it should repaint. */
   invalidate() {
+    this.updateMaxScrollShared();
     this._invalidate?.();
     this.notifyUI();
   }
@@ -601,6 +643,7 @@ export class EditorStateManager {
 
   setViewport(width: number, height: number) {
     this.viewport = { width, height };
+    this.updateMaxScrollShared();
   }
 
   get maxScrollY(): number {
@@ -671,6 +714,8 @@ export class EditorStateManager {
   }
 
   stopMomentumScroll() {
+    if (this._scrollXShared) cancelAnimation(this._scrollXShared);
+    if (this._scrollYShared) cancelAnimation(this._scrollYShared);
     if (this._momentumAnimId !== null) {
       cancelAnimationFrame(this._momentumAnimId);
       this._momentumAnimId = null;
@@ -685,6 +730,18 @@ export class EditorStateManager {
     const finalX = Math.max(0, targetX);
     const finalY = Math.max(0, Math.min(this.maxScrollY, targetY));
     
+    if (this._scrollXShared && this._scrollYShared) {
+      const curX = this._scrollXShared.value;
+      const curY = this._scrollYShared.value;
+      if (Math.abs(curX - finalX) > 1) {
+        this._scrollXShared.value = withTiming(finalX, { duration: 180 });
+      }
+      if (Math.abs(curY - finalY) > 1) {
+        this._scrollYShared.value = withTiming(finalY, { duration: 180 });
+      }
+      return;
+    }
+
     if (Math.abs(this.scrollOffset.x - finalX) < 1 && Math.abs(this.scrollOffset.y - finalY) < 1) {
       this.scrollOffset = { x: finalX, y: finalY };
       return;
@@ -766,6 +823,22 @@ export class EditorStateManager {
     );
     const visibleLines = Math.ceil(this.viewport.height / lineHeight) + 1; // +1 for partial lines
     const lastLine = Math.min(lineCount, firstLine + visibleLines);
+
+    return { firstLine, lastLine };
+  }
+
+  getWindowedRange(overscanLines: number = 25): VisibleRange {
+    const { lineHeight, contentPaddingTop } = EDITOR_THEME;
+    const lineCount = this.engine.lineCount;
+
+    const firstVisible = Math.max(
+      1,
+      Math.floor((this.scrollOffset.y - contentPaddingTop) / lineHeight) + 1,
+    );
+    const visibleLines = Math.ceil(this.viewport.height / lineHeight) + 1;
+    
+    const firstLine = Math.max(1, firstVisible - overscanLines);
+    const lastLine = Math.min(lineCount, firstVisible + visibleLines + overscanLines);
 
     return { firstLine, lastLine };
   }
@@ -1110,6 +1183,32 @@ export class EditorStateManager {
   }
 
   // ── Cursor Position & Blink (UI-Thread Decoupled) ────────────────────────
+  getCursorDocPosition(): { docX: number; docY: number; visible: boolean } {
+    const hasRangeSelection =
+      this.selection !== null &&
+      (this.selection.startLine !== this.selection.endLine ||
+        this.selection.startColumn !== this.selection.endColumn);
+    if (hasRangeSelection) {
+      return { docX: 0, docY: 0, visible: false };
+    }
+
+    const isZeroWidthSelection = this.selection !== null && !hasRangeSelection;
+    if (isZeroWidthSelection) {
+      return { docX: 0, docY: 0, visible: false };
+    }
+
+    const lineText = this.engine.getLine(this.cursorLine);
+    const visualCol = columnToVisual(lineText, this.cursorColumn);
+    const docX =
+      EDITOR_THEME.gutterWidth +
+      EDITOR_THEME.contentPaddingLeft +
+      visualCol * this.charWidth;
+    const docY = this.getLineY(this.cursorLine);
+
+    const visible = this.charWidth > 0;
+    return { docX, docY, visible };
+  }
+
   getCursorScreenPosition(): { x: number; y: number; visible: boolean } {
     // If there's a range selection, normal cursor is hidden
     const hasRangeSelection =

@@ -20,7 +20,6 @@ import {
   type SkCanvas,
   type SkPicture,
   PaintStyle,
-  ClipOp,
   type SkPaint,
   type SkPath,
   type SkTypefaceFontProvider,
@@ -227,20 +226,19 @@ function getCachedLineNumberParagraph(
   return para;
 }
 
-// ── Main Draw Function ──────────────────────────────────────────────────────
+// ── Main Draw Functions (Windowed Absolute Coordinates) ─────────────────────
 
 /**
- * Draw the entire editor onto the given Skia canvas.
- *
- * Called inside `createPicture()` — records draw commands into a picture
- * that the GPU replays. This function must be fast and allocation-light.
+ * Draw editor content (background, current line, selection, text, handles)
+ * at absolute document coordinates into contentPicture.
  */
-function drawEditorToCanvas(
+function drawEditorContentToCanvas(
   canvas: SkCanvas,
   state: EditorStateManager,
   resources: SkiaRendererResources,
-  canvasWidth: number,
-  canvasHeight: number,
+  firstLine: number,
+  lastLine: number,
+  documentWidth: number,
 ) {
   const { fontProvider, charWidth } = resources;
   const {
@@ -250,61 +248,33 @@ function drawEditorToCanvas(
     cursorWidth,
   } = EDITOR_THEME;
 
-  // ── 1. Clear background ────────────────────────────────────────────────
+  // 1. Clear background
   canvas.drawPaint(PAINTS.background);
 
-  // ── 2. Compute visible range for mathematical virtualization ───────────
-  const { firstLine, lastLine } = state.getVisibleRange();
-  
+  // 2. Query syntax tokens for the windowed line range
   const syntaxTokens = state.engine.getSyntaxTokens(firstLine, lastLine);
-    
   const tokensByLine: Record<number, SyntaxToken[]> = {};
   for (const token of syntaxTokens) {
     if (!tokensByLine[token.line]) tokensByLine[token.line] = [];
     tokensByLine[token.line].push(token);
   }
 
-  const contentAreaWidth = canvasWidth - gutterWidth - contentPaddingLeft;
-
-  // Calculate Horizontal Virtualization bounds
-  // We overscan by 20 characters to hide any pop-in from fast scrolling
-  const OVERSCAN_X = 20;
-  let firstCharIndex = 0;
-  let visibleCharCount = 0;
-  
-  if (charWidth > 0) {
-    firstCharIndex = Math.max(0, Math.floor(state.scrollOffset.x / charWidth) - OVERSCAN_X);
-    visibleCharCount = Math.ceil(contentAreaWidth / charWidth) + OVERSCAN_X * 2;
-  }
-
-  // ── 3. Draw content pass (clipped to content area: solves Bug 4 text over gutter) ─
-  canvas.save();
-  canvas.clipRect(
-    Skia.XYWHRect(gutterWidth, 0, Math.max(0, canvasWidth - gutterWidth), canvasHeight),
-    ClipOp.Intersect,
-    false,
-  );
-  canvas.translate(0, -state.scrollOffset.y);
-
-  // ── Current line highlight ─────────────────────────────────────
-  const cursorLineY = state.getLineY(state.cursorLine);
-  if (
-    cursorLineY + lineHeight >= state.scrollOffset.y && 
-    cursorLineY <= state.scrollOffset.y + canvasHeight
-  ) {
+  // 3. Current line highlight
+  if (state.cursorLine >= firstLine && state.cursorLine <= lastLine) {
+    const cursorLineY = state.getLineY(state.cursorLine);
     canvas.drawRect(
-      Skia.XYWHRect(
-        gutterWidth,
-        cursorLineY,
-        contentAreaWidth + contentPaddingLeft + state.scrollOffset.x,
-        lineHeight,
-      ),
+      Skia.XYWHRect(gutterWidth, cursorLineY, documentWidth, lineHeight),
       PAINTS.currentLineHighlight,
     );
   }
 
-  // ── Selection background ──────────────────────────────────────
-  if (state.selection && charWidth > 0 && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn)) {
+  // 4. Selection background
+  if (
+    state.selection &&
+    charWidth > 0 &&
+    (state.selection.startLine !== state.selection.endLine ||
+      state.selection.startColumn !== state.selection.endColumn)
+  ) {
     const { startLine, startColumn, endLine, endColumn } = state.selection;
     let sLine = startLine, sCol = startColumn, eLine = endLine, eCol = endColumn;
 
@@ -325,162 +295,112 @@ function drawEditorToCanvas(
 
       const rawLine = state.engine.getLine(lineNum);
       const colStart = isFirst ? sCol : 0;
-      let colEnd = isLast ? eCol : state.engine.getLineLength(lineNum) + 1; // +1 for newline
+      const colEnd = isLast ? eCol : state.engine.getLineLength(lineNum) + 1;
 
       if (colEnd > colStart) {
         const visualColStart = columnToVisual(rawLine, colStart);
         const visualColEnd = columnToVisual(rawLine, colEnd);
-        const textXStart = gutterWidth + contentPaddingLeft + (visualColStart * charWidth) - state.scrollOffset.x;
+        const textXStart = gutterWidth + contentPaddingLeft + visualColStart * charWidth;
         const width = (visualColEnd - visualColStart) * charWidth;
 
-        let drawX = textXStart;
-        let drawWidth = width;
-        if (drawX < gutterWidth) {
-          drawWidth -= (gutterWidth - drawX);
-          drawX = gutterWidth;
-        }
-
-        if (drawWidth > 0 && drawX < canvasWidth) {
-          canvas.drawRect(
-            Skia.XYWHRect(drawX, y, Math.min(drawWidth, canvasWidth - drawX), lineHeight),
-            PAINTS.selectionBg,
-          );
-        }
+        canvas.drawRect(
+          Skia.XYWHRect(textXStart, y, width, lineHeight),
+          PAINTS.selectionBg,
+        );
       }
     }
   }
 
-  // ── Visible lines text ──────────────────────────────────────────────
+  // 5. Visible lines text
   for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
     const y = state.getLineY(lineNum);
     const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
 
     const rawLine = state.engine.getLine(lineNum);
     const lineText = expandTabs(rawLine);
-    
-    // Update dynamic horizontal scroll bounds
+
     if (lineText.length > state.maxRenderedLineLength) {
       state.maxRenderedLineLength = lineText.length;
     }
 
-    if (charWidth > 0 && lineText.length > firstCharIndex) {
-      const lastCharIndex = firstCharIndex + visibleCharCount;
-      
-      let safeStart = firstCharIndex;
-      let safeEnd = lastCharIndex;
-
-      // Prevent slicing surrogate pairs (emojis) in half
-      if (safeStart > 0 && safeStart < lineText.length) {
-        const code = lineText.charCodeAt(safeStart);
-        if (code >= 0xDC00 && code <= 0xDFFF) safeStart -= 1;
-      }
-      if (safeEnd > 0 && safeEnd < lineText.length) {
-        const code = lineText.charCodeAt(safeEnd - 1);
-        if (code >= 0xD800 && code <= 0xDBFF) safeEnd += 1;
-      }
-
-      const slicedText = lineText.substring(safeStart, safeEnd);
-      
-      if (slicedText.length > 0) {
-        let lineTokens = tokensByLine[lineNum] || [];
-        if (lineTokens.length > 0) {
-          lineTokens = adjustTokensForTabs(rawLine, lineTokens);
-          lineTokens.sort((a, b) => a.startColumn - b.startColumn || (b.endColumn - a.endColumn));
-          const filtered = [];
-          let lastEnd = -1;
-          for (const t of lineTokens) {
-              if (t.startColumn >= lastEnd) {
-                  filtered.push(t);
-                  lastEnd = t.endColumn;
-              }
-          }
-          lineTokens = filtered;
+    let lineTokens = tokensByLine[lineNum] || [];
+    if (lineTokens.length > 0) {
+      lineTokens = adjustTokensForTabs(rawLine, lineTokens);
+      lineTokens.sort((a, b) => a.startColumn - b.startColumn || (b.endColumn - a.endColumn));
+      const filtered = [];
+      let lastEnd = -1;
+      for (const t of lineTokens) {
+        if (t.startColumn >= lastEnd) {
+          filtered.push(t);
+          lastEnd = t.endColumn;
         }
-        const para = getCachedLineParagraph(slicedText, fontProvider, lineTokens, safeStart);
-        const charX = safeStart * charWidth;
-        const textX = gutterWidth + contentPaddingLeft + charX - state.scrollOffset.x;
-        para.paint(canvas, textX, textY);
       }
-    } else if (charWidth === 0 && lineText.length > 0) {
-      // Fallback if charWidth hasn't loaded
-      let lineTokens = tokensByLine[lineNum] || [];
-      if (lineTokens.length > 0) {
-          lineTokens = adjustTokensForTabs(rawLine, lineTokens);
-          lineTokens.sort((a, b) => a.startColumn - b.startColumn || (b.endColumn - a.endColumn));
-          const filtered = [];
-          let lastEnd = -1;
-          for (const t of lineTokens) {
-              if (t.startColumn >= lastEnd) {
-                  filtered.push(t);
-                  lastEnd = t.endColumn;
-              }
-          }
-          lineTokens = filtered;
-      }
-      const para = getCachedLineParagraph(lineText, fontProvider, lineTokens, 0);
-      const textX = gutterWidth + contentPaddingLeft - state.scrollOffset.x;
-      para.paint(canvas, textX, textY);
+      lineTokens = filtered;
     }
+
+    const para = getCachedLineParagraph(lineText, fontProvider, lineTokens, 0);
+    const textX = gutterWidth + contentPaddingLeft;
+    para.paint(canvas, textX, textY);
   }
 
-  // ── Stationary Zero-Width Selection Handle (Teardrop) ────────
-  // Normal blinking caret is rendered by the UI-thread CursorOverlay component
-  // to avoid re-recording the entire SkPicture on every 530ms blink.
-  const hasRangeSelection = state.selection && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn);
+  // 6. Stationary Zero-Width Selection Handle (Teardrop)
+  const hasRangeSelection =
+    state.selection &&
+    (state.selection.startLine !== state.selection.endLine ||
+      state.selection.startColumn !== state.selection.endColumn);
   const isZeroWidthSelection = state.selection && !hasRangeSelection;
-  
-  if (isZeroWidthSelection) {
-    const cx = state.getCursorX();
-    const cy = state.getCursorY();
 
-    if (
-      cy + lineHeight >= state.scrollOffset.y && 
-      cy <= state.scrollOffset.y + canvasHeight && 
-      cx >= gutterWidth
-    ) {
-      canvas.drawRect(
-        Skia.XYWHRect(cx, cy, cursorWidth, lineHeight),
-        PAINTS.cursor,
-      );
-      
-      canvas.save();
-      canvas.translate(cx + cursorWidth / 2, cy + lineHeight + 15);
-      canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
-      canvas.restore();
-    }
+  if (isZeroWidthSelection && state.cursorLine >= firstLine && state.cursorLine <= lastLine) {
+    const cx = state.getCursorDocPosition().docX;
+    const cy = state.getLineY(state.cursorLine);
+
+    canvas.drawRect(
+      Skia.XYWHRect(cx, cy, cursorWidth, lineHeight),
+      PAINTS.cursor,
+    );
+
+    canvas.save();
+    canvas.translate(cx + cursorWidth / 2, cy + lineHeight + 15);
+    canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
+    canvas.restore();
   }
 
-  // ── Selection handles ──────────────────────────────────────────
-  if (state.selection && charWidth > 0 && (state.selection.startLine !== state.selection.endLine || state.selection.startColumn !== state.selection.endColumn)) {
-    const startX = state.getCursorXFor(state.selection.startColumn, state.selection.startLine);
-    const startY = state.getLineY(state.selection.startLine);
-    const endX = state.getCursorXFor(state.selection.endColumn, state.selection.endLine);
-    const endY = state.getLineY(state.selection.endLine);
+  // 7. Selection handles for range selection
+  if (hasRangeSelection && charWidth > 0) {
+    const { startLine, startColumn, endLine, endColumn } = state.selection!;
+    const drawHandle = (line: number, col: number) => {
+      if (line >= firstLine && line <= lastLine) {
+        const rawLine = state.engine.getLine(line);
+        const visualCol = columnToVisual(rawLine, col);
+        const x = gutterWidth + contentPaddingLeft + visualCol * charWidth;
+        const y = state.getLineY(line);
 
-    const drawHandle = (x: number, y: number) => {
-        if (y + lineHeight >= state.scrollOffset.y && y <= state.scrollOffset.y + canvasHeight && x >= gutterWidth) {
-            canvas.drawRect(Skia.XYWHRect(x, y, cursorWidth, lineHeight), PAINTS.handle);
-            canvas.save();
-            canvas.translate(x + cursorWidth / 2, y + lineHeight + 15);
-            canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
-            canvas.restore();
-        }
+        canvas.drawRect(Skia.XYWHRect(x, y, cursorWidth, lineHeight), PAINTS.handle);
+        canvas.save();
+        canvas.translate(x + cursorWidth / 2, y + lineHeight + 15);
+        canvas.drawPath(WATER_DROP_PATH, PAINTS.handle);
+        canvas.restore();
+      }
     };
-    drawHandle(startX, startY);
-    drawHandle(endX, endY);
+
+    drawHandle(startLine, startColumn);
+    drawHandle(endLine, endColumn);
   }
+}
 
-  canvas.restore();
+/**
+ * Draw line numbers in document coordinates into gutterPicture.
+ */
+function drawEditorGutterToCanvas(
+  canvas: SkCanvas,
+  state: EditorStateManager,
+  resources: SkiaRendererResources,
+  firstLine: number,
+  lastLine: number,
+) {
+  const { fontProvider } = resources;
+  const { lineHeight } = EDITOR_THEME;
 
-  // ── 4. Draw fixed gutter background, border & line numbers on top ──────────
-  canvas.drawRect(
-    Skia.XYWHRect(0, 0, gutterWidth, canvasHeight),
-    PAINTS.gutterBg,
-  );
-  canvas.drawLine(gutterWidth, 0, gutterWidth, canvasHeight, PAINTS.gutterBorder);
-
-  canvas.save();
-  canvas.translate(0, -state.scrollOffset.y);
   for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
     const y = state.getLineY(lineNum);
     const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
@@ -491,16 +411,49 @@ function drawEditorToCanvas(
     );
     lineNumPara.paint(canvas, 0, textY);
   }
-  canvas.restore();
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+export interface EditorPictures {
+  contentPicture: SkPicture;
+  gutterPicture: SkPicture;
+}
+
 /**
- * Create an SkPicture that contains the full editor rendering.
- *
- * This is the main entry point called by EditorCanvas on every invalidation.
- * The returned SkPicture is rendered via the `<Picture>` component.
+ * Record contentPicture and gutterPicture for a windowed range of lines
+ * at absolute document coordinates.
+ */
+export function createEditorPictures(
+  state: EditorStateManager,
+  resources: SkiaRendererResources,
+  canvasWidth: number,
+  canvasHeight: number,
+  firstLine: number,
+  lastLine: number,
+): EditorPictures {
+  const documentWidth = Math.max(canvasWidth, state.maxScrollX + canvasWidth + 200);
+  const documentHeight = Math.max(canvasHeight, state.getLineY(lastLine + 2));
+
+  const contentPicture = createPicture(
+    (canvas) => {
+      drawEditorContentToCanvas(canvas, state, resources, firstLine, lastLine, documentWidth);
+    },
+    { width: documentWidth, height: documentHeight },
+  );
+
+  const gutterPicture = createPicture(
+    (canvas) => {
+      drawEditorGutterToCanvas(canvas, state, resources, firstLine, lastLine);
+    },
+    { width: EDITOR_THEME.gutterWidth, height: documentHeight },
+  );
+
+  return { contentPicture, gutterPicture };
+}
+
+/**
+ * Backward-compatible single picture creator.
  */
 export function createEditorPicture(
   state: EditorStateManager,
@@ -508,10 +461,6 @@ export function createEditorPicture(
   canvasWidth: number,
   canvasHeight: number,
 ): SkPicture {
-  return createPicture(
-    (canvas) => {
-      drawEditorToCanvas(canvas, state, resources, canvasWidth, canvasHeight);
-    },
-    { width: canvasWidth, height: canvasHeight },
-  );
+  const { firstLine, lastLine } = state.getVisibleRange();
+  return createEditorPictures(state, resources, canvasWidth, canvasHeight, firstLine, lastLine).contentPicture;
 }
