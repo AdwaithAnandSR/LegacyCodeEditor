@@ -130,8 +130,7 @@ export class EditorStateManager {
       !selection ||
       this.isDraggingSelection ||
       !this.floatingMenuVisible ||
-      this.isFingerScrolling ||
-      this.isMomentumScrolling()
+      this.isScrolling
     ) {
       return null;
     }
@@ -196,6 +195,7 @@ export class EditorStateManager {
   private _scrollYShared: SharedValue<number> | null = null;
   private _maxScrollXShared: SharedValue<number> | null = null;
   private _maxScrollYShared: SharedValue<number> | null = null;
+  private _isScrollingShared: SharedValue<boolean> | null = null;
 
   get scrollOffset(): ScrollOffset {
     if (this._scrollXShared && this._scrollYShared) {
@@ -210,16 +210,22 @@ export class EditorStateManager {
     if (this._scrollYShared) this._scrollYShared.value = val.y;
   }
 
+  get isScrolling(): boolean {
+    return this._isScrollingShared ? this._isScrollingShared.value : (this.isFingerScrolling || this.isMomentumScrolling());
+  }
+
   setScrollSharedValues(
     scrollX: SharedValue<number>,
     scrollY: SharedValue<number>,
     maxScrollX: SharedValue<number>,
     maxScrollY: SharedValue<number>,
+    isScrolling?: SharedValue<boolean>,
   ) {
     this._scrollXShared = scrollX;
     this._scrollYShared = scrollY;
     this._maxScrollXShared = maxScrollX;
     this._maxScrollYShared = maxScrollY;
+    if (isScrolling) this._isScrollingShared = isScrolling;
     this.updateMaxScrollShared();
   }
 
@@ -277,7 +283,7 @@ export class EditorStateManager {
   get floatingMenuSnapshot() {
     const sel = this.selection;
     const selStr = sel ? `${sel.startLine}:${sel.startColumn}-${sel.endLine}:${sel.endColumn}` : "none";
-    return `${selStr},${Math.round(this.scrollOffset.y)},${Math.round(this.scrollOffset.x)},${this.viewport.height},${this.isDraggingSelection},${this.isFingerScrolling},${this.isMomentumScrolling()},${this.floatingMenuVisible}`;
+    return `${selStr},${Math.round(this.scrollOffset.y)},${Math.round(this.scrollOffset.x)},${this.viewport.height},${this.isDraggingSelection},${this.isScrolling},${this.floatingMenuVisible}`;
   }
 
   /**

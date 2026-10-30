@@ -5,7 +5,6 @@ import Animated, {
   useAnimatedStyle,
   useAnimatedReaction,
   withRepeat,
-  withSequence,
   withTiming,
   withDelay,
   cancelAnimation,
@@ -48,10 +47,7 @@ export function CursorOverlay({
     sv.value = withDelay(
       400,
       withRepeat(
-        withSequence(
-          withTiming(0, { duration: EDITOR_THEME.cursorBlinkIntervalMs }),
-          withTiming(1, { duration: EDITOR_THEME.cursorBlinkIntervalMs })
-        ),
+        withTiming(0, { duration: EDITOR_THEME.cursorBlinkIntervalMs }),
         -1,
         true
       )
@@ -72,10 +68,7 @@ export function CursorOverlay({
         opacity.value = withDelay(
           400,
           withRepeat(
-            withSequence(
-              withTiming(0, { duration: EDITOR_THEME.cursorBlinkIntervalMs }),
-              withTiming(1, { duration: EDITOR_THEME.cursorBlinkIntervalMs })
-            ),
+            withTiming(0, { duration: EDITOR_THEME.cursorBlinkIntervalMs }),
             -1,
             true
           )

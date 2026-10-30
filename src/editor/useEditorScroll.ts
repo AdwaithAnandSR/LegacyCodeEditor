@@ -18,6 +18,7 @@ export interface UseEditorScrollOptions {
   scrollY: SharedValue<number>;
   maxScrollX: SharedValue<number>;
   maxScrollY: SharedValue<number>;
+  isScrolling?: SharedValue<boolean>;
   onTap?: () => void;
 }
 
@@ -32,6 +33,7 @@ export function useEditorScroll({
   scrollY,
   maxScrollX,
   maxScrollY,
+  isScrolling: externalIsScrolling,
   onTap,
 }: UseEditorScrollOptions): UseEditorScrollReturn {
   const [gestureState] = useState(createGestureSessionState);
@@ -40,8 +42,12 @@ export function useEditorScroll({
   const startScrollX = useSharedValue(0);
   const startScrollY = useSharedValue(0);
   const scrollLock = useSharedValue<'none' | 'horizontal' | 'vertical'>('none');
-  const isScrolling = useSharedValue(false);
+  const fallbackIsScrolling = useSharedValue(false);
+  const isScrolling = externalIsScrolling ?? fallbackIsScrolling;
   const isDraggingHandle = useSharedValue(false);
+  const isDecayingX = useSharedValue(false);
+  const isDecayingY = useSharedValue(false);
+  const wasScrollingSV = useSharedValue(false);
 
   const gesture = createEditorGestures({
     stateManager,
@@ -56,6 +62,9 @@ export function useEditorScroll({
     scrollLock,
     isScrolling,
     isDraggingHandle,
+    isDecayingX,
+    isDecayingY,
+    wasScrollingSV,
     onTap,
   });
 

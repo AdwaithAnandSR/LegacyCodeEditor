@@ -51,6 +51,9 @@ export interface CreateEditorGesturesOptions {
   scrollLock: SharedValue<'none' | 'horizontal' | 'vertical'>;
   isScrolling: SharedValue<boolean>;
   isDraggingHandle: SharedValue<boolean>;
+  isDecayingX: SharedValue<boolean>;
+  isDecayingY: SharedValue<boolean>;
+  wasScrollingSV: SharedValue<boolean>;
   onTap?: () => void;
 }
 
@@ -67,6 +70,9 @@ export function createEditorGestures({
   scrollLock,
   isScrolling,
   isDraggingHandle,
+  isDecayingX,
+  isDecayingY,
+  wasScrollingSV,
   onTap,
 }: CreateEditorGesturesOptions): ComposedGestureType {
   const checkIfOnHandle = (x: number, y: number) => {
@@ -90,11 +96,11 @@ export function createEditorGestures({
     stateManager.invalidate();
   };
 
-  const handleTapOnJS = (x: number, y: number) => {
+  const handleTapOnJS = (x: number, y: number, wasScrolling: boolean) => {
     state.startedInMenu = stateManager.isPointInFloatingMenu(x, y);
     if (state.startedInMenu) return;
 
-    if (!state.wasScrolling) {
+    if (!wasScrolling) {
       const handle = stateManager.getHandleAt(x, y);
       if (handle) {
         stateManager.floatingMenuVisible = true;
@@ -125,6 +131,9 @@ export function createEditorGestures({
       "worklet";
       cancelAnimation(scrollX);
       cancelAnimation(scrollY);
+      isDecayingX.value = false;
+      isDecayingY.value = false;
+      isDraggingHandle.value = false;
       runOnJS(checkIfOnHandle)(e.x, e.y);
     })
     .onStart(() => {
@@ -132,7 +141,9 @@ export function createEditorGestures({
       startScrollX.value = scrollX.value;
       startScrollY.value = scrollY.value;
       scrollLock.value = 'none';
-      isScrolling.value = true;
+      if (!isDraggingHandle.value) {
+        isScrolling.value = true;
+      }
     })
     .onUpdate((e) => {
       "worklet";
@@ -147,8 +158,10 @@ export function createEditorGestures({
       if (directionalLockEnabled && scrollLock.value === 'none') {
         const dx = Math.abs(activeDx);
         const dy = Math.abs(activeDy);
-        if (dx > 4 || dy > 4) {
-          scrollLock.value = dx > dy ? 'horizontal' : 'vertical';
+        if (dx > 8 && dx > dy * 1.5) {
+          scrollLock.value = 'horizontal';
+        } else if (dy > 8 && dy > dx * 1.5) {
+          scrollLock.value = 'vertical';
         }
       }
 
@@ -168,6 +181,7 @@ export function createEditorGestures({
       "worklet";
       if (isDraggingHandle.value) {
         isDraggingHandle.value = false;
+        isScrolling.value = false;
         runOnJS(handleDragEnd)();
         return;
       }
@@ -175,13 +189,33 @@ export function createEditorGestures({
       const velX = scrollLock.value === 'vertical' ? 0 : e.velocityX;
       const velY = scrollLock.value === 'horizontal' ? 0 : e.velocityY;
 
-      if (Math.abs(velX) > 60) {
-        scrollX.value = withDecay({
-          velocity: -velX,
-          clamp: [0, maxScrollX.value],
-        });
+      const shouldDecayX = Math.abs(velX) > 60;
+      const shouldDecayY = Math.abs(velY) > 60;
+
+      if (!shouldDecayX && !shouldDecayY) {
+        isScrolling.value = false;
+        return;
       }
-      if (Math.abs(velY) > 60) {
+
+      if (shouldDecayX) {
+        isDecayingX.value = true;
+        scrollX.value = withDecay(
+          {
+            velocity: -velX,
+            clamp: [0, maxScrollX.value],
+          },
+          (finished) => {
+            "worklet";
+            isDecayingX.value = false;
+            if (!isDecayingY.value) {
+              isScrolling.value = false;
+            }
+          }
+        );
+      }
+
+      if (shouldDecayY) {
+        isDecayingY.value = true;
         scrollY.value = withDecay(
           {
             velocity: -velY,
@@ -189,17 +223,19 @@ export function createEditorGestures({
           },
           (finished) => {
             "worklet";
-            if (finished) isScrolling.value = false;
+            isDecayingY.value = false;
+            if (!isDecayingX.value) {
+              isScrolling.value = false;
+            }
           }
         );
-      } else {
-        isScrolling.value = false;
       }
     })
     .onFinalize(() => {
       "worklet";
       if (isDraggingHandle.value) {
         isDraggingHandle.value = false;
+        isScrolling.value = false;
         runOnJS(handleDragEnd)();
       }
     })
@@ -210,9 +246,12 @@ export function createEditorGestures({
     .activateAfterLongPress(300)
     .onStart((e) => {
       state.gestureOwner = 'selection';
-      state.wasScrolling = isScrolling.value;
+      state.wasScrolling = isScrolling.value || isDecayingX.value || isDecayingY.value;
       cancelAnimation(scrollX);
       cancelAnimation(scrollY);
+      isDecayingX.value = false;
+      isDecayingY.value = false;
+      isScrolling.value = false;
 
       const handle = stateManager.getHandleAt(e.x, e.y);
       if (handle) {
@@ -268,12 +307,19 @@ export function createEditorGestures({
   const tapGesture = Gesture.Tap()
     .onBegin(() => {
       "worklet";
-      state.wasScrolling = isScrolling.value;
+      const wasScrolling = isScrolling.value || isDecayingX.value || isDecayingY.value;
       cancelAnimation(scrollX);
       cancelAnimation(scrollY);
+      isDecayingX.value = false;
+      isDecayingY.value = false;
+      isScrolling.value = false;
+      wasScrollingSV.value = wasScrolling;
     })
     .onEnd((e) => {
-      runOnJS(handleTapOnJS)(e.x, e.y);
+      "worklet";
+      const wasScrolling = wasScrollingSV.value;
+      wasScrollingSV.value = false;
+      runOnJS(handleTapOnJS)(e.x, e.y, wasScrolling);
     });
 
   return Gesture.Exclusive(selectionPanGesture, panGesture, tapGesture);

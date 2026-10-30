@@ -1,24 +1,21 @@
 import { useSyncExternalStore } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import * as Clipboard from 'expo-clipboard';
 import type { EditorStateManager } from './EditorStateManager';
 import { EDITOR_THEME } from './theme';
 
-export function FloatingMenu({ stateManager }: { stateManager: EditorStateManager }) {
+export interface FloatingMenuProps {
+  stateManager: EditorStateManager;
+  isScrolling?: SharedValue<boolean>;
+}
+
+export function FloatingMenu({ stateManager, isScrolling }: FloatingMenuProps) {
   // Sync with state manager's UI updates
   useSyncExternalStore(stateManager.subscribeUI, () => stateManager.floatingMenuSnapshot);
 
   const bounds = stateManager.getFloatingMenuBounds();
-  if (!bounds) {
-    return null;
-  }
-
-  const selection = stateManager.selection;
-  if (!selection) {
-    return null;
-  }
 
   const handleCopy = async () => {
     const text = stateManager.copy();
@@ -41,13 +38,28 @@ export function FloatingMenu({ stateManager }: { stateManager: EditorStateManage
     }
   };
 
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: isScrolling && isScrolling.value ? 0 : 1,
+    };
+  });
+
+  if (!bounds) {
+    return null;
+  }
+
+  const selection = stateManager.selection;
+  if (!selection) {
+    return null;
+  }
+
   const isSelectionEmpty = selection.startLine === selection.endLine && selection.startColumn === selection.endColumn;
 
   return (
     <Animated.View 
       entering={FadeIn.duration(150)}
       exiting={FadeOut.duration(100)}
-      style={[styles.container, { top: bounds.y, left: bounds.x }]}
+      style={[styles.container, { top: bounds.y, left: bounds.x }, animatedStyle]}
       onLayout={(e) => {
         stateManager.setFloatingMenuSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height);
       }}

@@ -128,6 +128,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
   const scrollY = useSharedValue(0);
   const maxScrollX = useSharedValue(0);
   const maxScrollY = useSharedValue(0);
+  const isScrolling = useSharedValue(false);
 
   const contentPictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
   const gutterPictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
@@ -177,7 +178,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
   );
 
   useEffect(() => {
-    stateManager.setScrollSharedValues(scrollX, scrollY, maxScrollX, maxScrollY);
+    stateManager.setScrollSharedValues(scrollX, scrollY, maxScrollX, maxScrollY, isScrolling);
 
     if (resources) {
       stateManager.setCharWidth(resources.charWidth);
@@ -250,23 +251,27 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
   }, [stateManager, resources]);
 
   // Window shift reaction: re-record pictures when scrolling crosses window buffer bounds
+  const isShiftPending = useRef(false);
   const triggerWindowShift = useCallback(() => {
-    const size = canvasSizeRef.current;
-    if (resources && size.width > 0 && size.height > 0) {
-      const windowRange = stateManager.getWindowedRange(25);
-      const pictures = createEditorPictures(
-        stateManager,
-        resources,
-        size.width,
-        size.height,
-        windowRange.firstLine,
-        windowRange.lastLine,
-      );
-      // eslint-disable-next-line react-hooks/immutability
-      contentPictureSV.value = pictures.contentPicture;
-      // eslint-disable-next-line react-hooks/immutability
-      gutterPictureSV.value = pictures.gutterPicture;
-    }
+    if (isShiftPending.current) return;
+    isShiftPending.current = true;
+    requestAnimationFrame(() => {
+      isShiftPending.current = false;
+      const size = canvasSizeRef.current;
+      if (resources && size.width > 0 && size.height > 0) {
+        const windowRange = stateManager.getWindowedRange(25);
+        const pictures = createEditorPictures(
+          stateManager,
+          resources,
+          size.width,
+          size.height,
+          windowRange.firstLine,
+          windowRange.lastLine,
+        );
+        contentPictureSV.value = pictures.contentPicture;
+        gutterPictureSV.value = pictures.gutterPicture;
+      }
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateManager, resources]);
 
@@ -289,6 +294,17 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
     [triggerWindowShift]
   );
 
+  // UI-thread scroll finish reaction to notify UI components (floating context menu)
+  useAnimatedReaction(
+    () => isScrolling.value,
+    (curr, prev) => {
+      "worklet";
+      if (!curr && prev) {
+        runOnJS(() => stateManager.notifyUI())();
+      }
+    }
+  );
+
   // ── 6. Input hook ──────────────────────────────────────────────────────
   const { inputRef, handleTextChange, handleKeyPress, focus } =
     useEditorInput(stateManager);
@@ -300,6 +316,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
     scrollY,
     maxScrollX,
     maxScrollY,
+    isScrolling,
     onTap: focus,
   });
 
@@ -364,7 +381,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
             />
           </View>
 
-          <FloatingMenu stateManager={stateManager} />
+          <FloatingMenu stateManager={stateManager} isScrolling={isScrolling} />
         </View>
       </GestureDetector>
       <KeyboardAccessoryBar stateManager={stateManager} />

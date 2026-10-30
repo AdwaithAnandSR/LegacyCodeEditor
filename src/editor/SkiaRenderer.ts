@@ -259,6 +259,13 @@ function drawEditorContentToCanvas(
     tokensByLine[token.line].push(token);
   }
 
+  // Batch-fetch all visible lines in one Nitro C++ call to eliminate 50-150 JSI round-trips
+  const rawLines = state.engine.getLines(firstLine, lastLine);
+  const getRawLine = (lineNum: number): string => {
+    const idx = lineNum - firstLine;
+    return (idx >= 0 && idx < rawLines.length) ? rawLines[idx] : state.engine.getLine(lineNum);
+  };
+
   // 3. Current line highlight
   if (state.cursorLine >= firstLine && state.cursorLine <= lastLine) {
     const cursorLineY = state.getLineY(state.cursorLine);
@@ -293,9 +300,9 @@ function drawEditorContentToCanvas(
       const isFirst = lineNum === sLine;
       const isLast = lineNum === eLine;
 
-      const rawLine = state.engine.getLine(lineNum);
+      const rawLine = getRawLine(lineNum);
       const colStart = isFirst ? sCol : 0;
-      const colEnd = isLast ? eCol : state.engine.getLineLength(lineNum) + 1;
+      const colEnd = isLast ? eCol : rawLine.length + 1;
 
       if (colEnd > colStart) {
         const visualColStart = columnToVisual(rawLine, colStart);
@@ -316,7 +323,7 @@ function drawEditorContentToCanvas(
     const y = state.getLineY(lineNum);
     const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
 
-    const rawLine = state.engine.getLine(lineNum);
+    const rawLine = getRawLine(lineNum);
     const lineText = expandTabs(rawLine);
 
     if (lineText.length > state.maxRenderedLineLength) {
@@ -370,7 +377,7 @@ function drawEditorContentToCanvas(
     const { startLine, startColumn, endLine, endColumn } = state.selection!;
     const drawHandle = (line: number, col: number) => {
       if (line >= firstLine && line <= lastLine) {
-        const rawLine = state.engine.getLine(line);
+        const rawLine = getRawLine(line);
         const visualCol = columnToVisual(rawLine, col);
         const x = gutterWidth + contentPaddingLeft + visualCol * charWidth;
         const y = state.getLineY(line);
