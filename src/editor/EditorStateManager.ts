@@ -87,6 +87,102 @@ function isHighSurrogate(code: number): boolean {
 function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
+function cpStart(text: string, end: number): number {
+  // start index of the code point that ends at `end` (end > 0)
+  const lo = text.charCodeAt(end - 1);
+  if (end >= 2 && lo >= 0xdc00 && lo <= 0xdfff) {
+    const hi = text.charCodeAt(end - 2);
+    if (hi >= 0xd800 && hi <= 0xdbff) return end - 2;
+  }
+  return end - 1;
+}
+function cpAt(text: string, i: number): number {
+  return text.codePointAt(i) as number;
+}
+function cpLen(cp: number): number {
+  return cp > 0xffff ? 2 : 1;
+}
+function isRegionalIndicator(cp: number): boolean {
+  return cp >= 0x1f1e6 && cp <= 0x1f1ff;
+}
+/** Zero-width joiner, variation selectors, skin-tone modifiers, combining marks, keycap, emoji tags. */
+function isExtend(cp: number): boolean {
+  return (
+    cp === 0x200d || cp === 0x200c ||
+    (cp >= 0x0300 && cp <= 0x036f) ||
+    (cp >= 0xfe00 && cp <= 0xfe0f) ||
+    (cp >= 0x20d0 && cp <= 0x20ff) ||
+    (cp >= 0x1f3fb && cp <= 0x1f3ff) ||
+    (cp >= 0xe0020 && cp <= 0xe007f)
+  );
+}
+function isPictographic(cp: number): boolean {
+  return (cp >= 0x1f000 && cp <= 0x1faff) || (cp >= 0x2190 && cp <= 0x2bff) || cp === 0xa9 || cp === 0xae;
+}
+
+/** Column of the start of the grapheme cluster that ends at `col` (emoji-aware). */
+export function prevGraphemeColumn(text: string, col: number): number {
+  if (col <= 0) return 0;
+  if (col > text.length) col = text.length;
+  let i = cpStart(text, col);
+  let cp = cpAt(text, i);
+  if (isRegionalIndicator(cp)) {
+    let n = 1;
+    let j = i;
+    while (j > 0) {
+      const k = cpStart(text, j);
+      if (!isRegionalIndicator(cpAt(text, k))) break;
+      n++;
+      j = k;
+    }
+    return n % 2 === 0 ? cpStart(text, i) : i;
+  }
+  for (;;) {
+    if (i <= 0) return 0;
+    if (isExtend(cp)) {
+      i = cpStart(text, i);
+      cp = cpAt(text, i);
+      continue;
+    }
+    // base character; a ZWJ right before it joins it to the previous emoji
+    if (i >= 2 && text.charCodeAt(i - 1) === 0x200d && isPictographic(cp)) {
+      const z = i - 1;
+      const prev = cpStart(text, z);
+      if (isPictographic(cpAt(text, prev)) || isExtend(cpAt(text, prev))) {
+        i = prev;
+        cp = cpAt(text, i);
+        continue;
+      }
+    }
+    return i;
+  }
+}
+
+/** Column just after the grapheme cluster that starts at `col` (emoji-aware). */
+export function nextGraphemeColumn(text: string, col: number): number {
+  const len = text.length;
+  if (col >= len) return len;
+  let cp = cpAt(text, col);
+  let j = col + cpLen(cp);
+  if (isRegionalIndicator(cp)) {
+    if (j < len && isRegionalIndicator(cpAt(text, j))) j += cpLen(cpAt(text, j));
+    return j;
+  }
+  let pict = isPictographic(cp);
+  while (j < len) {
+    const nx = cpAt(text, j);
+    if (isExtend(nx)) {
+      j += cpLen(nx);
+      if (nx === 0x200d && pict && j < len && isPictographic(cpAt(text, j))) {
+        j += cpLen(cpAt(text, j));
+      }
+      continue;
+    }
+    break;
+  }
+  return j;
+}
+
 /** Column one "character" to the left (steps over a whole surrogate pair). */
 export function prevColumnInText(text: string, col: number): number {
   if (col <= 0) return 0;
@@ -548,7 +644,7 @@ export class EditorStateManager {
       if (this.cursorColumn > 0) {
         // Delete one character on the same line
         deleteLine = this.cursorLine;
-        deleteColStart = prevColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
+        deleteColStart = prevGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
       } else {
         // At column 0: merge with previous line
         deleteLine = this.cursorLine - 1;
@@ -619,7 +715,7 @@ export class EditorStateManager {
 
     if (this.cursorColumn < lineLen) {
       endLine = this.cursorLine;
-      endCol = nextColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
+      endCol = nextGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
     } else {
       // At end of line: merge with next line
       endLine = this.cursorLine + 1;
@@ -660,7 +756,7 @@ export class EditorStateManager {
   moveCursorLeft() {
     this.selection = null;
     if (this.cursorColumn > 0) {
-      this.cursorColumn = prevColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
+      this.cursorColumn = prevGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
     } else if (this.cursorLine > 1) {
       this.cursorLine--;
       this.cursorColumn = this.engine.getLineLength(this.cursorLine);
@@ -674,7 +770,7 @@ export class EditorStateManager {
     this.selection = null;
     const lineLen = this.engine.getLineLength(this.cursorLine);
     if (this.cursorColumn < lineLen) {
-      this.cursorColumn = nextColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
+      this.cursorColumn = nextGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
     } else if (this.cursorLine < this.engine.lineCount) {
       this.cursorLine++;
       this.cursorColumn = 0;
