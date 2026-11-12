@@ -133,6 +133,12 @@ export function useEditorInput(stateManager: EditorStateManager) {
       while (commonLen < minLen && prevStr[commonLen] === text[commonLen]) {
         commonLen++;
       }
+      // Never split a surrogate pair: if the common prefix ends on a high surrogate the two texts
+      // differ only in the low surrogate (e.g. the keyboard swaps one emoji for another).
+      if (commonLen > 0) {
+        const lastCommon = prevStr.charCodeAt(commonLen - 1);
+        if (lastCommon >= 0xd800 && lastCommon <= 0xdbff) commonLen--;
+      }
 
       let diffStr = "";
       let backspaceCount = 0;
