@@ -56,45 +56,52 @@ export function FloatingMenu({ stateManager, isScrolling }: FloatingMenuProps) {
   const isSelectionEmpty = selection.startLine === selection.endLine && selection.startColumn === selection.endColumn;
 
   return (
-    <Animated.View 
+    <Animated.View
       entering={FadeIn.duration(150)}
       exiting={FadeOut.duration(100)}
-      style={[styles.container, { top: bounds.y, left: bounds.x }, animatedStyle]}
-      onLayout={(e) => {
-        stateManager.setFloatingMenuSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height);
-      }}
+      style={[styles.wrapper, { top: bounds.y, left: bounds.x }]}
     >
-      {!isSelectionEmpty && (
-        <>
-          <TouchableOpacity onPress={handleCut} style={styles.button}>
-            <Text style={styles.text}>Cut</Text>
-          </TouchableOpacity>
-          <View style={styles.divider} />
-          <TouchableOpacity onPress={handleCopy} style={styles.button}>
-            <Text style={styles.text}>Copy</Text>
-          </TouchableOpacity>
-          <View style={styles.divider} />
-        </>
-      )}
-      <TouchableOpacity onPress={handlePaste} style={styles.button}>
-        <Text style={styles.text}>Paste</Text>
-      </TouchableOpacity>
-      <View style={styles.divider} />
-      <TouchableOpacity 
-        onPress={() => {
-          stateManager.selectAll();
-        }} 
-        style={styles.button}
+      <Animated.View
+        style={[styles.container, animatedStyle]}
+        onLayout={(e) => {
+          stateManager.setFloatingMenuSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height);
+        }}
       >
-        <Text style={styles.text}>Select All</Text>
-      </TouchableOpacity>
+        {!isSelectionEmpty && (
+          <>
+            <TouchableOpacity onPress={handleCut} style={styles.button}>
+              <Text style={styles.text}>Cut</Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity onPress={handleCopy} style={styles.button}>
+              <Text style={styles.text}>Copy</Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+          </>
+        )}
+        <TouchableOpacity onPress={handlePaste} style={styles.button}>
+          <Text style={styles.text}>Paste</Text>
+        </TouchableOpacity>
+        <View style={styles.divider} />
+        <TouchableOpacity 
+          onPress={() => {
+            stateManager.selectAll();
+          }} 
+          style={styles.button}
+        >
+          <Text style={styles.text}>Select All</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  wrapper: {
     position: 'absolute',
+    zIndex: 999,
+  },
+  container: {
     flexDirection: 'row',
     backgroundColor: '#2D2D2D',
     borderRadius: 8,
@@ -106,7 +113,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 8,
-    zIndex: 999,
   },
   button: {
     paddingHorizontal: 16,
