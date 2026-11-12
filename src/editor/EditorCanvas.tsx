@@ -61,16 +61,24 @@ const INITIAL_PICTURE = createPicture(() => {}, { width: 1, height: 1 });
 
 export function EditorCanvas({ initialContent = "" }: EditorCanvasProps) {
   const [stateManager, setStateManager] = useState<EditorStateManager | null>(null);
+  const loadedContentRef = useRef(initialContent);
 
   useEffect(() => {
-    // Defer the heavy C++ Nitro initialization
+    // Defer the heavy C++ Nitro initialization (runs once)
     const timer = setTimeout(() => {
       const sm = new EditorStateManager();
-      sm.loadContent(initialContent);
+      sm.loadContent(loadedContentRef.current);
       setStateManager(sm);
     }, 0);
     return () => clearTimeout(timer);
-  }, [initialContent]);
+  }, []);
+
+  useEffect(() => {
+    if (!stateManager) return;
+    if (loadedContentRef.current === initialContent) return;
+    loadedContentRef.current = initialContent;
+    stateManager.loadContent(initialContent);
+  }, [initialContent, stateManager]);
 
   if (!stateManager) {
     return <View style={styles.container} />;
