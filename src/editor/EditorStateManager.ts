@@ -46,16 +46,66 @@ export type InvalidateCallback = () => void;
 
 // ── Tab and Visual Column Utilities ──────────────────────────────────────────
 
+/** First code point of an emoji that browsers/Android draw ~2 monospace cells wide. */
+function isEmojiPresentation(cp: number): boolean {
+  if (cp >= 0x1f000 && cp <= 0x1faff) return true;
+  return (
+    (cp >= 0x231a && cp <= 0x231b) || (cp >= 0x23e9 && cp <= 0x23ec) || cp === 0x23f0 || cp === 0x23f3 ||
+    (cp >= 0x25fd && cp <= 0x25fe) || (cp >= 0x2614 && cp <= 0x2615) || (cp >= 0x2648 && cp <= 0x2653) ||
+    cp === 0x267f || cp === 0x2693 || cp === 0x26a1 || (cp >= 0x26aa && cp <= 0x26ab) ||
+    (cp >= 0x26bd && cp <= 0x26be) || (cp >= 0x26c4 && cp <= 0x26c5) || cp === 0x26ce || cp === 0x26d4 ||
+    cp === 0x26ea || (cp >= 0x26f2 && cp <= 0x26f3) || cp === 0x26f5 || cp === 0x26fa || cp === 0x26fd ||
+    cp === 0x2705 || (cp >= 0x270a && cp <= 0x270b) || cp === 0x2728 || cp === 0x274c || cp === 0x274e ||
+    (cp >= 0x2753 && cp <= 0x2755) || cp === 0x2757 || (cp >= 0x2795 && cp <= 0x2797) || cp === 0x27b0 ||
+    cp === 0x27bf || (cp >= 0x2b1b && cp <= 0x2b1c) || cp === 0x2b50 || cp === 0x2b55
+  );
+}
+/** Fast pre-check: does the line contain anything that could be an emoji cluster? */
+const MAY_HAVE_EMOJI =
+  /[\uD800-\uDFFF\uFE0F\u20E3\u231A-\u231B\u23E9-\u23EC\u23F0\u23F3\u25FD-\u25FE\u2614-\u2615\u2648-\u2653\u267F\u2693\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D4\u26EA\u26F2-\u26F3\u26F5\u26FA\u26FD\u2705\u270A-\u270B\u2728\u274C\u274E\u2753-\u2755\u2757\u2795-\u2797\u27B0\u27BF\u2B1B-\u2B1C\u2B50\u2B55]/;
+
+/** Is the grapheme cluster text[s, e) an emoji (drawn ~2 cells wide)? */
+function isEmojiCluster(text: string, s: number, e: number): boolean {
+  if (isEmojiPresentation(text.codePointAt(s) as number)) return true;
+  for (let k = s + 1; k < e; k++) {
+    const c = text.charCodeAt(k);
+    if (c === 0xfe0f || c === 0x20e3) return true;
+  }
+  return false;
+}
+
 export function columnToVisual(lineText: string, col: number, tabSize: number = 4): number {
   if (!lineText) return col;
+  if (!MAY_HAVE_EMOJI.test(lineText)) {
+    let visualCol = 0;
+    const maxCol = Math.min(col, lineText.length);
+    for (let i = 0; i < maxCol; i++) {
+      if (lineText[i] === '\t') {
+        visualCol += tabSize - (visualCol % tabSize);
+      } else {
+        visualCol += 1;
+      }
+    }
+    if (col > lineText.length) {
+      visualCol += (col - lineText.length);
+    }
+    return visualCol;
+  }
   let visualCol = 0;
+  let i = 0;
   const maxCol = Math.min(col, lineText.length);
-  for (let i = 0; i < maxCol; i++) {
+  while (i < maxCol) {
     if (lineText[i] === '\t') {
       visualCol += tabSize - (visualCol % tabSize);
-    } else {
-      visualCol += 1;
+      i++;
+      continue;
     }
+    const next = nextGraphemeColumn(lineText, i);
+    if (next > maxCol) {
+      break;
+    }
+    visualCol += isEmojiCluster(lineText, i, next) ? 2 : 1;
+    i = next;
   }
   if (col > lineText.length) {
     visualCol += (col - lineText.length);
@@ -65,16 +115,41 @@ export function columnToVisual(lineText: string, col: number, tabSize: number = 
 
 export function visualToColumn(lineText: string, visualCol: number, tabSize: number = 4): number {
   if (!lineText || visualCol <= 0) return 0;
+  if (!MAY_HAVE_EMOJI.test(lineText)) {
+    let curVisual = 0;
+    for (let i = 0; i < lineText.length; i++) {
+      const advance = lineText[i] === '\t' ? (tabSize - (curVisual % tabSize)) : 1;
+      if (curVisual + advance / 2 >= visualCol) {
+        return i;
+      }
+      curVisual += advance;
+      if (curVisual >= visualCol) {
+        return i + 1;
+      }
+    }
+    return lineText.length + Math.max(0, visualCol - curVisual);
+  }
   let curVisual = 0;
-  for (let i = 0; i < lineText.length; i++) {
-    const advance = lineText[i] === '\t' ? (tabSize - (curVisual % tabSize)) : 1;
+  let i = 0;
+  while (i < lineText.length) {
+    if (lineText[i] === '\t') {
+      const advance = tabSize - (curVisual % tabSize);
+      if (curVisual + advance / 2 >= visualCol) return i;
+      curVisual += advance;
+      if (curVisual >= visualCol) return i + 1;
+      i++;
+      continue;
+    }
+    const next = nextGraphemeColumn(lineText, i);
+    const advance = isEmojiCluster(lineText, i, next) ? 2 : 1;
     if (curVisual + advance / 2 >= visualCol) {
       return i;
     }
     curVisual += advance;
     if (curVisual >= visualCol) {
-      return i + 1;
+      return next;
     }
+    i = next;
   }
   return lineText.length + Math.max(0, visualCol - curVisual);
 }
