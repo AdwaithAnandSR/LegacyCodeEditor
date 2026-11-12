@@ -62,7 +62,9 @@ export function useEditorInput(stateManager: EditorStateManager) {
       isKeyboardVisible.current = false;
       stateManager.isKeyboardVisible = false;
       stateManager.keyboardHeight = 0;
-      stateManager.invalidate();
+      // maxScrollY just shrank: pull the scroll offset back inside the new bounds.
+      // scrollTo() clamps and calls invalidate() itself.
+      stateManager.scrollTo(stateManager.scrollOffset.y);
     });
     return () => {
       sub1.remove();
