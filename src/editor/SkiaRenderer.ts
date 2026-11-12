@@ -319,6 +319,7 @@ function drawEditorContentToCanvas(
   }
 
   // 5. Visible lines text
+  let maxLenGrew = false;
   for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
     const y = state.getLineY(lineNum);
     const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
@@ -328,6 +329,7 @@ function drawEditorContentToCanvas(
 
     if (lineText.length > state.maxRenderedLineLength) {
       state.maxRenderedLineLength = lineText.length;
+      maxLenGrew = true;
     }
 
     let lineTokens = tokensByLine[lineNum] || [];
@@ -349,6 +351,7 @@ function drawEditorContentToCanvas(
     const textX = gutterWidth + contentPaddingLeft;
     para.paint(canvas, textX, textY);
   }
+  if (maxLenGrew) state.updateMaxScrollShared();
 
   // 6. Stationary Zero-Width Selection Handle (Teardrop)
   const hasRangeSelection =
