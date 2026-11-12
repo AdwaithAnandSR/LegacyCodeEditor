@@ -79,6 +79,8 @@ export function visualToColumn(lineText: string, visualCol: number, tabSize: num
   return lineText.length + Math.max(0, visualCol - curVisual);
 }
 
+const INDENT_WIDTH = 2;
+
 function isHighSurrogate(code: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
 }
@@ -286,6 +288,7 @@ export class EditorStateManager {
 
   constructor() {
     this.engine = createEditorEngine();
+    this.engine.tabSize = INDENT_WIDTH;
     this.engine.loadContent("");
   }
 
@@ -445,16 +448,27 @@ export class EditorStateManager {
 
   indent() {
     const normSel = this.getNormalizedSelection();
+    const indentStr = " ".repeat(INDENT_WIDTH);
     if (normSel && normSel.startLine !== normSel.endLine) {
+      const sel = this.selection!;
       this.engine.indentLines(normSel.startLine, normSel.endLine);
-      this.setCursor(this.cursorLine, this.cursorColumn + 2);
+      // Keep the multi-line selection so Tab can be pressed repeatedly.
+      // Column 0 stays 0 so whole-line selections stay whole-line.
+      const shift = (c: number) => (c === 0 ? 0 : c + INDENT_WIDTH);
+      this.selection = {
+        startLine: sel.startLine,
+        startColumn: shift(sel.startColumn),
+        endLine: sel.endLine,
+        endColumn: shift(sel.endColumn),
+      };
+      this.cursorColumn = shift(this.cursorColumn);
     } else {
       if (normSel) {
-        const newPos = this.engine.replaceText(normSel, "  ");
+        const newPos = this.engine.replaceText(normSel, indentStr);
         this.setCursor(newPos.line, newPos.column);
         this.selection = null;
       } else {
-        const newPos = this.engine.insertText(this.cursorLine, this.cursorColumn, "  ");
+        const newPos = this.engine.insertText(this.cursorLine, this.cursorColumn, indentStr);
         this.setCursor(newPos.line, newPos.column);
       }
     }
@@ -463,44 +477,35 @@ export class EditorStateManager {
     this.invalidate();
   }
 
+  /** How many leading columns outdentLine() would remove from this line. */
+  private removableIndent(line: number): number {
+    const text = this.engine.getLine(line);
+    if (text.startsWith("\t")) return 1;
+    let n = 0;
+    while (n < text.length && n < INDENT_WIDTH && text[n] === " ") n++;
+    return n;
+  }
+
   outdent() {
     const normSel = this.getNormalizedSelection();
     if (normSel && normSel.startLine !== normSel.endLine) {
+      const sel = this.selection!;
+      // Compute new columns BEFORE the engine edits the text.
+      const cut = (line: number, col: number) => Math.max(0, col - this.removableIndent(line));
+      const newSel = {
+        startLine: sel.startLine,
+        startColumn: cut(sel.startLine, sel.startColumn),
+        endLine: sel.endLine,
+        endColumn: cut(sel.endLine, sel.endColumn),
+      };
+      const newCursorColumn = cut(this.cursorLine, this.cursorColumn);
       this.engine.outdentLines(normSel.startLine, normSel.endLine);
-      this.setCursor(this.cursorLine, Math.max(0, this.cursorColumn - 2));
+      this.selection = newSel;
+      this.cursorColumn = newCursorColumn;
     } else {
-      const col = this.cursorColumn;
-      if (col > 0) {
-        const numToCheck = Math.min(2, col);
-        const range = {
-          startLine: this.cursorLine,
-          startColumn: col - numToCheck,
-          endLine: this.cursorLine,
-          endColumn: col
-        };
-        const textBefore = this.engine.getTextInRange(range);
-        
-        let spacesToDelete = 0;
-        if (textBefore.endsWith("  ")) spacesToDelete = 2;
-        else if (textBefore.endsWith(" ")) spacesToDelete = 1;
-
-        if (spacesToDelete > 0) {
-          const delRange = {
-            startLine: this.cursorLine,
-            startColumn: col - spacesToDelete,
-            endLine: this.cursorLine,
-            endColumn: col
-          };
-          this.engine.deleteText(delRange);
-          this.setCursor(this.cursorLine, col - spacesToDelete);
-          if (normSel) this.selection = null;
-        } else {
-          this.engine.outdentLine(this.cursorLine);
-          this.setCursor(this.cursorLine, Math.max(0, col - 2));
-        }
-      } else {
-        this.engine.outdentLine(this.cursorLine);
-      }
+      const removed = this.removableIndent(this.cursorLine);
+      if (removed > 0) this.engine.outdentLine(this.cursorLine);
+      this.setCursor(this.cursorLine, Math.max(0, this.cursorColumn - removed));
     }
     this.resetBlink();
     this.scrollToCursor();
