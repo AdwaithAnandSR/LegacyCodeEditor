@@ -76,8 +76,9 @@ export function useEditorInput(stateManager: EditorStateManager) {
   // causes the effect cleanup to execute, unbinding setClearOSBuffer(undefined) and rebinding,
   // causing lifecycle churn and breaking external buffer clearance during fast typing or menu actions.
   const clearInput = useCallback(() => {
-    // Flip the sentinel between the two long invisible strings
-    sentinelRef.current = sentinelRef.current === SENTINEL_A ? SENTINEL_B : SENTINEL_A;
+    // Flip relative to the last text the OS REPORTED (not our own last request), so two
+    // resets in a row can never collapse onto a sentinel the OS is still showing.
+    sentinelRef.current = getSentinelType(nativeTextRef.current) === 'A' ? SENTINEL_B : SENTINEL_A;
     lastTextRef.current = sentinelRef.current;
     
     // Attempt to clear the native OS buffer
@@ -140,11 +141,11 @@ export function useEditorInput(stateManager: EditorStateManager) {
       if (commonLen < prevSentinelLen) {
         // The sentinel itself was replaced/tampered with (e.g. user selected all and typed new text)
         backspaceCount = Math.max(0, prevStr.length - prevSentinelLen);
-        diffStr = text.replace(/[\u200B\u200C]/g, "");
+        diffStr = text.substring(getSentinelLength(text));
         forceReset = true; // We must restore the sentinel!
       } else {
         backspaceCount = prevStr.length - commonLen;
-        diffStr = text.substring(commonLen).replace(/[\u200B\u200C]/g, "");
+        diffStr = text.substring(commonLen);
         if (text.length > 500) {
           forceReset = true;
         }
