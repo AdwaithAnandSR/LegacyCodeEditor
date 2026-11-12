@@ -2,6 +2,7 @@
 
 #include "HybridEditorEngineSpec.hpp"
 #include "SyntaxEngine.hpp"
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -566,6 +567,7 @@ private:
     double tabSize_ = 4;
     bool insertSpaces_ = true;
     bool modified_ = false;
+    size_t searchCap_ = 10000; // max findText results; findAndReplace lifts it temporarily
 
     // Document version tracking (O(1) modified check without hashing whole document)
     uint64_t documentVersion_ = 0;      // id of the CURRENT document state
@@ -738,6 +740,7 @@ public:
 
     void loadContent(const std::string& content) override {
         pieceTable_.loadContent(content);
+        lineEnding_ = (content.find("\r\n") != std::string::npos) ? LineEnding::CRLF : LineEnding::LF;
         undoManager_.clear();
         documentVersion_ = 0;
         savedDocumentVersion_ = 0;
@@ -912,8 +915,16 @@ public:
 
     void insertLine(double lineNumber, const std::string& text) override {
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
-        size_t offset = pieceTable_.getLineStartOffset(idx);
-        std::string toInsert = text + getLineEndingStr();
+        size_t offset;
+        std::string toInsert;
+        if (idx >= pieceTable_.lineCount()) {
+            // Append as a new LAST line: the previous last line has no trailing newline.
+            offset = pieceTable_.length();
+            toInsert = (offset > 0 ? getLineEndingStr() : std::string()) + text;
+        } else {
+            offset = pieceTable_.getLineStartOffset(idx);
+            toInsert = text + getLineEndingStr();
+        }
         CursorPosition startPos = toPosition(offset);
 
         recordEdit(offset, "", toInsert);
@@ -1019,7 +1030,7 @@ public:
 
         if (isRegex) {
             try {
-                auto flags = std::regex::ECMAScript;
+                auto flags = std::regex::ECMAScript | std::regex::multiline;
                 if (!caseSensitive) flags |= std::regex::icase;
                 std::regex re(query, flags);
 
@@ -1027,7 +1038,7 @@ public:
                 auto end = std::sregex_iterator();
 
                 for (auto it = begin; it != end; ++it) {
-                    if (results.size() >= 10000) break; // Cap search results (defect E6)
+                    if (results.size() >= searchCap_) break; // Cap search results (defect E6)
 
                     size_t matchStart = static_cast<size_t>(it->position());
                     size_t matchLen = static_cast<size_t>(it->length());
@@ -1063,7 +1074,7 @@ public:
 
             size_t pos = 0;
             while ((pos = searchContent.find(searchQuery, pos)) != std::string::npos) {
-                if (results.size() >= 10000) break; // Cap search results (defect E6)
+                if (results.size() >= searchCap_) break; // Cap search results (defect E6)
 
                 if (wholeWord) {
                     bool leftOk = (pos == 0) || !isWordChar(searchContent[pos - 1]);
@@ -1097,7 +1108,9 @@ public:
         bool wholeWord,
         bool isRegex
     ) override {
+        searchCap_ = std::numeric_limits<size_t>::max();
         auto results = findText(query, caseSensitive, wholeWord, isRegex);
+        searchCap_ = 10000;
         if (results.empty()) return 0;
 
         undoManager_.beginGroup();

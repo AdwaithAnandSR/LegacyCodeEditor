@@ -630,7 +630,7 @@ export class EditorStateManager {
    * Insert a newline at the current cursor position.
    */
   insertNewline() {
-    this.insertAtCursor("\n");
+    this.insertAtCursor(this.engine.lineEnding === "crlf" ? "\r\n" : "\n");
   }
 
   // ── Cursor Movement ──────────────────────────────────────────────────────
