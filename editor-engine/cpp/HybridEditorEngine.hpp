@@ -463,6 +463,14 @@ public:
         groupDepth_ = 0;
     }
 
+    // True when `s` is exactly one UTF-8 encoded code point (1-4 bytes).
+    static bool isSingleCodePoint(const std::string& s) {
+        if (s.empty()) return false;
+        const unsigned char c = static_cast<unsigned char>(s[0]);
+        size_t len = (c < 0x80) ? 1 : ((c & 0xE0) == 0xC0) ? 2 : ((c & 0xF0) == 0xE0) ? 3 : ((c & 0xF8) == 0xF0) ? 4 : 0;
+        return len != 0 && s.size() == len;
+    }
+
     void recordEdit(size_t offset, const std::string& before, const std::string& after, uint64_t vBefore, uint64_t vAfter) {
         redoStack_.clear();
 
@@ -470,7 +478,7 @@ public:
         if (groupDepth_ == 0 && !undoStack_.empty() && undoStack_.back().edits.size() == 1) {
             auto& lastEdit = undoStack_.back().edits.front();
             if (lastEdit.textBefore.empty() && before.empty() &&
-                lastEdit.textAfter.size() < 80 && after.size() == 1 &&
+                lastEdit.textAfter.size() < 80 && isSingleCodePoint(after) &&
                 after[0] != '\n' && after[0] != '\r' &&
                 lastEdit.byteOffset + lastEdit.textAfter.size() == offset) {
                 lastEdit.textAfter += after;
@@ -560,8 +568,9 @@ private:
     bool modified_ = false;
 
     // Document version tracking (O(1) modified check without hashing whole document)
-    uint64_t documentVersion_ = 0;
-    uint64_t savedDocumentVersion_ = 0;
+    uint64_t documentVersion_ = 0;      // id of the CURRENT document state
+    uint64_t savedDocumentVersion_ = 0; // id of the state that was last saved
+    uint64_t nextVersionId_ = 0;        // monotonic, NEVER rewound by undo/redo
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -569,9 +578,10 @@ private:
      * Record an edit operation in the undo manager and update document version.
      */
     void recordEdit(size_t offset, const std::string& before, const std::string& after) {
-        documentVersion_++;
+        const uint64_t vBefore = documentVersion_;
+        documentVersion_ = ++nextVersionId_;
         modified_ = (documentVersion_ != savedDocumentVersion_);
-        undoManager_.recordEdit(offset, before, after, documentVersion_ - 1, documentVersion_);
+        undoManager_.recordEdit(offset, before, after, vBefore, documentVersion_);
     }
 
     /**
@@ -731,6 +741,7 @@ public:
         undoManager_.clear();
         documentVersion_ = 0;
         savedDocumentVersion_ = 0;
+        nextVersionId_ = 0;
         modified_ = false;
         if (syntaxEngine_) syntaxEngine_->parseFull();
     }
