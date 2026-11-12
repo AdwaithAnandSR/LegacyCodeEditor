@@ -295,6 +295,17 @@ export class EditorStateManager {
   // ── UI Subscription (for React overlays) ─────────────────────────────────
   private _uiListeners = new Set<() => void>();
   private _lastMenuSnapshot = "";
+  private _lastMenuBounds: { x: number; y: number; width: number; height: number } | null = null;
+
+  // Cached values for React render. Reading shared values (scroll position, isScrolling)
+  // during render triggers Reanimated warnings, so these are computed in notifyUI(), which runs
+  // outside render, and render only reads the cache.
+  get cachedFloatingMenuSnapshot(): string {
+    return this._lastMenuSnapshot;
+  }
+  get cachedFloatingMenuBounds(): { x: number; y: number; width: number; height: number } | null {
+    return this._lastMenuBounds;
+  }
 
   subscribeUI = (listener: () => void) => {
     this._uiListeners.add(listener);
@@ -307,6 +318,7 @@ export class EditorStateManager {
     const current = this.floatingMenuSnapshot;
     if (current !== this._lastMenuSnapshot) {
       this._lastMenuSnapshot = current;
+      this._lastMenuBounds = this.getFloatingMenuBounds();
       this._uiListeners.forEach((cb) => cb());
     }
   }

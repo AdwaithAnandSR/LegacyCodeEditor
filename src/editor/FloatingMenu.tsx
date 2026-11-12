@@ -13,9 +13,9 @@ export interface FloatingMenuProps {
 
 export function FloatingMenu({ stateManager, isScrolling }: FloatingMenuProps) {
   // Sync with state manager's UI updates
-  useSyncExternalStore(stateManager.subscribeUI, () => stateManager.floatingMenuSnapshot);
+  useSyncExternalStore(stateManager.subscribeUI, () => stateManager.cachedFloatingMenuSnapshot);
 
-  const bounds = stateManager.getFloatingMenuBounds();
+  const bounds = stateManager.cachedFloatingMenuBounds;
 
   const handleCopy = async () => {
     const text = stateManager.copy();
