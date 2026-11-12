@@ -238,6 +238,10 @@ export function createEditorGestures({
         isScrolling.value = false;
         runOnJS(handleDragEnd)();
       }
+      // A cancelled pan never reaches onEnd; do not leave isScrolling stuck true.
+      if (!isDecayingX.value && !isDecayingY.value) {
+        isScrolling.value = false;
+      }
     })
     .minDistance(5);
 
@@ -293,13 +297,17 @@ export function createEditorGestures({
       stateManager.handleSelectionEnd();
     })
     .onFinalize(() => {
+      const wasActive =
+        stateManager.isDraggingSelection ||
+        stateManager.activeHandle !== null ||
+        state.gestureOwner === 'selection';
       stateManager.isDraggingSelection = false;
       stateManager.activeHandle = null;
       if (state.gestureOwner === 'selection') {
         stateManager.handleSelectionEnd();
         state.gestureOwner = null;
       }
-      stateManager.invalidate();
+      if (wasActive) stateManager.invalidate();
     })
     .runOnJS(true);
 
