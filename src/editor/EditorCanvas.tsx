@@ -302,15 +302,22 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
     [triggerWindowShift]
   );
 
+  // JS-thread callback. Worklets cannot capture a class instance (EditorStateManager),
+  // so the reaction below only captures this plain function (same pattern as triggerWindowShift).
+  const notifyUIOnJS = useCallback(() => {
+    stateManager.notifyUI();
+  }, [stateManager]);
+
   // UI-thread scroll finish reaction to notify UI components (floating context menu)
   useAnimatedReaction(
     () => isScrolling.value,
     (curr, prev) => {
       "worklet";
       if (!curr && prev) {
-        runOnJS(() => stateManager.notifyUI())();
+        runOnJS(notifyUIOnJS)();
       }
-    }
+    },
+    [notifyUIOnJS]
   );
 
   // ── 6. Input hook ──────────────────────────────────────────────────────
