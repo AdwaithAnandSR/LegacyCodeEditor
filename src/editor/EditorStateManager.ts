@@ -79,6 +79,36 @@ export function visualToColumn(lineText: string, visualCol: number, tabSize: num
   return lineText.length + Math.max(0, visualCol - curVisual);
 }
 
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+/** Column one "character" to the left (steps over a whole surrogate pair). */
+export function prevColumnInText(text: string, col: number): number {
+  if (col <= 0) return 0;
+  if (col >= 2 && isLowSurrogate(text.charCodeAt(col - 1)) && isHighSurrogate(text.charCodeAt(col - 2))) {
+    return col - 2;
+  }
+  return col - 1;
+}
+/** Column one "character" to the right (steps over a whole surrogate pair). */
+export function nextColumnInText(text: string, col: number): number {
+  if (col >= text.length) return text.length;
+  if (isHighSurrogate(text.charCodeAt(col)) && isLowSurrogate(text.charCodeAt(col + 1))) {
+    return col + 2;
+  }
+  return col + 1;
+}
+/** If col is in the MIDDLE of a surrogate pair, move it to just before the pair. */
+export function snapColumnInText(text: string, col: number): number {
+  if (col > 0 && col < text.length && isHighSurrogate(text.charCodeAt(col - 1)) && isLowSurrogate(text.charCodeAt(col))) {
+    return col - 1;
+  }
+  return col;
+}
+
 export function expandTabs(lineText: string, tabSize: number = 4): string {
   if (!lineText.includes('\t')) return lineText;
   let result = "";
@@ -501,7 +531,7 @@ export class EditorStateManager {
       if (this.cursorColumn > 0) {
         // Delete one character on the same line
         deleteLine = this.cursorLine;
-        deleteColStart = this.cursorColumn - 1;
+        deleteColStart = prevColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
       } else {
         // At column 0: merge with previous line
         deleteLine = this.cursorLine - 1;
@@ -516,18 +546,30 @@ export class EditorStateManager {
       });
       this.setCursor(deleteLine, deleteColStart);
     } else {
-      // Bulk delete (e.g. from a native keyboard Undo after a large paste)
-      const currentOffset = this.engine.getOffsetAt(this.cursorLine, this.cursorColumn);
-      const targetOffset = Math.max(0, currentOffset - count);
-      const startPos = this.engine.getPositionAt(targetOffset);
-      
+      // Bulk delete. `count` is in UTF-16 units (that is what the hidden TextInput reports).
+      let line = this.cursorLine;
+      let col = this.cursorColumn;
+      let remaining = count;
+      while (remaining > 0 && (line > 1 || col > 0)) {
+        if (col === 0) {
+          line--;
+          col = this.engine.getLineLength(line);
+          remaining -= 1; // a line break counts as one unit
+          continue;
+        }
+        const take = Math.min(col, remaining);
+        col -= take;
+        remaining -= take;
+      }
+      col = snapColumnInText(this.engine.getLine(line), col);
+
       this.engine.deleteText({
-        startLine: startPos.line,
-        startColumn: startPos.column,
+        startLine: line,
+        startColumn: col,
         endLine: this.cursorLine,
         endColumn: this.cursorColumn,
       });
-      this.setCursor(startPos.line, startPos.column);
+      this.setCursor(line, col);
     }
 
     this.resetBlink();
@@ -560,7 +602,7 @@ export class EditorStateManager {
 
     if (this.cursorColumn < lineLen) {
       endLine = this.cursorLine;
-      endCol = this.cursorColumn + 1;
+      endCol = nextColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
     } else {
       // At end of line: merge with next line
       endLine = this.cursorLine + 1;
@@ -591,7 +633,7 @@ export class EditorStateManager {
   setCursor(line: number, column: number, keepSelection = false) {
     const clamped = this.engine.clampPosition(line, column);
     this.cursorLine = clamped.line;
-    this.cursorColumn = clamped.column;
+    this.cursorColumn = snapColumnInText(this.engine.getLine(clamped.line), clamped.column);
     if (!keepSelection) {
       this.selection = null;
     }
@@ -600,7 +642,7 @@ export class EditorStateManager {
 
   moveCursorLeft() {
     if (this.cursorColumn > 0) {
-      this.cursorColumn--;
+      this.cursorColumn = prevColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
     } else if (this.cursorLine > 1) {
       this.cursorLine--;
       this.cursorColumn = this.engine.getLineLength(this.cursorLine);
@@ -613,7 +655,7 @@ export class EditorStateManager {
   moveCursorRight() {
     const lineLen = this.engine.getLineLength(this.cursorLine);
     if (this.cursorColumn < lineLen) {
-      this.cursorColumn++;
+      this.cursorColumn = nextColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
     } else if (this.cursorLine < this.engine.lineCount) {
       this.cursorLine++;
       this.cursorColumn = 0;
@@ -627,7 +669,7 @@ export class EditorStateManager {
     if (this.cursorLine > 1) {
       this.cursorLine--;
       const lineLen = this.engine.getLineLength(this.cursorLine);
-      this.cursorColumn = Math.min(this.cursorColumn, lineLen);
+      this.cursorColumn = snapColumnInText(this.engine.getLine(this.cursorLine), Math.min(this.cursorColumn, lineLen));
     }
     this.resetBlink();
     this.scrollToCursor();
@@ -638,7 +680,7 @@ export class EditorStateManager {
     if (this.cursorLine < this.engine.lineCount) {
       this.cursorLine++;
       const lineLen = this.engine.getLineLength(this.cursorLine);
-      this.cursorColumn = Math.min(this.cursorColumn, lineLen);
+      this.cursorColumn = snapColumnInText(this.engine.getLine(this.cursorLine), Math.min(this.cursorColumn, lineLen));
     }
     this.resetBlink();
     this.scrollToCursor();
