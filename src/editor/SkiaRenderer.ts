@@ -357,8 +357,11 @@ function drawEditorContentToCanvas(
       state.selection.startColumn !== state.selection.endColumn);
   const isZeroWidthSelection = state.selection && !hasRangeSelection;
 
-  if (isZeroWidthSelection && state.cursorLine >= firstLine && state.cursorLine <= lastLine) {
-    const cx = state.getCursorDocPosition().docX;
+  if (isZeroWidthSelection && charWidth > 0 && state.cursorLine >= firstLine && state.cursorLine <= lastLine) {
+    const cx =
+      gutterWidth +
+      contentPaddingLeft +
+      columnToVisual(getRawLine(state.cursorLine), state.cursorColumn) * charWidth;
     const cy = state.getLineY(state.cursorLine);
 
     canvas.drawRect(

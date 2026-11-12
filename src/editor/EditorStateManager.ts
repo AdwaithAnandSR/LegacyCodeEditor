@@ -641,6 +641,7 @@ export class EditorStateManager {
   }
 
   moveCursorLeft() {
+    this.selection = null;
     if (this.cursorColumn > 0) {
       this.cursorColumn = prevColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
     } else if (this.cursorLine > 1) {
@@ -653,6 +654,7 @@ export class EditorStateManager {
   }
 
   moveCursorRight() {
+    this.selection = null;
     const lineLen = this.engine.getLineLength(this.cursorLine);
     if (this.cursorColumn < lineLen) {
       this.cursorColumn = nextColumnInText(this.engine.getLine(this.cursorLine), this.cursorColumn);
@@ -666,6 +668,7 @@ export class EditorStateManager {
   }
 
   moveCursorUp() {
+    this.selection = null;
     if (this.cursorLine > 1) {
       this.cursorLine--;
       const lineLen = this.engine.getLineLength(this.cursorLine);
@@ -677,6 +680,7 @@ export class EditorStateManager {
   }
 
   moveCursorDown() {
+    this.selection = null;
     if (this.cursorLine < this.engine.lineCount) {
       this.cursorLine++;
       const lineLen = this.engine.getLineLength(this.cursorLine);
