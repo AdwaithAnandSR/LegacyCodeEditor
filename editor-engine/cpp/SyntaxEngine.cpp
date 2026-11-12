@@ -62,6 +62,16 @@ SyntaxEngine::SyntaxEngine(const PieceTable* pieceTable) : pieceTable_(pieceTabl
         "instanceof" @keyword
         "in" @keyword
         "of" @keyword
+        "extends" @keyword
+        "static" @keyword
+        "get" @keyword
+        "set" @keyword
+        "default" @keyword
+        "void" @keyword
+        "with" @keyword
+        "debugger" @keyword
+        (this) @keyword
+        (super) @keyword
         (true) @keyword
         (false) @keyword
         (null) @keyword
