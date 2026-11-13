@@ -27,7 +27,14 @@ import {
   createPicture,
 } from "@shopify/react-native-skia";
 import type { EditorStateManager } from "./EditorStateManager";
-import { columnToVisual, expandTabs } from "./EditorStateManager";
+import {
+  columnToVisual,
+  columnToCells,
+  expandTabs,
+  lineWidthCells,
+  setEmojiCells,
+  EMOJI_CELLS_MAX,
+} from "./EditorStateManager";
 import { EDITOR_THEME } from "./theme";
 import type { SyntaxToken } from "editor-engine";
 
@@ -104,12 +111,34 @@ function measureCharWidth(fontProvider: SkTypefaceFontProvider): number {
   return para.getMinIntrinsicWidth();
 }
 
+/** Width of one emoji in monospace cells, measured with the same text style as the editor. */
+function measureEmojiCells(fontProvider: SkTypefaceFontProvider, charWidth: number): number {
+  if (!(charWidth > 0)) return 2;
+  const para = Skia.ParagraphBuilder.Make(
+    {
+      textStyle: {
+        fontSize: EDITOR_THEME.fontSize,
+        fontFamilies: [EDITOR_THEME.fontFamily],
+        color: Skia.Color(EDITOR_THEME.textColor),
+      },
+    },
+    fontProvider,
+  )
+    .addText("\u{1F600}")
+    .build();
+  para.layout(1e6);
+  return para.getMinIntrinsicWidth() / charWidth;
+}
+
 export function createRendererResources(
   fontProvider: SkTypefaceFontProvider,
 ): SkiaRendererResources {
+  const charWidth = measureCharWidth(fontProvider);
+  // setEmojiCells ignores nonsense values and falls back to 2.
+  setEmojiCells(measureEmojiCells(fontProvider, charWidth));
   return {
     fontProvider,
-    charWidth: measureCharWidth(fontProvider),
+    charWidth,
   };
 }
 
@@ -305,8 +334,8 @@ function drawEditorContentToCanvas(
       const colEnd = isLast ? eCol : rawLine.length + 1;
 
       if (colEnd > colStart) {
-        const visualColStart = columnToVisual(rawLine, colStart);
-        const visualColEnd = columnToVisual(rawLine, colEnd);
+        const visualColStart = columnToCells(rawLine, colStart);
+        const visualColEnd = columnToCells(rawLine, colEnd);
         const textXStart = gutterWidth + contentPaddingLeft + visualColStart * charWidth;
         const width = (visualColEnd - visualColStart) * charWidth;
 
@@ -327,9 +356,13 @@ function drawEditorContentToCanvas(
     const rawLine = getRawLine(lineNum);
     const lineText = expandTabs(rawLine);
 
-    if (lineText.length > state.maxRenderedLineLength) {
-      state.maxRenderedLineLength = lineText.length;
-      maxLenGrew = true;
+    // lineText is already tab-expanded. Cheap upper bound first so normal lines skip the work.
+    if (lineText.length * EMOJI_CELLS_MAX > state.maxRenderedLineLength) {
+      const lineCells = lineWidthCells(lineText);
+      if (lineCells > state.maxRenderedLineLength) {
+        state.maxRenderedLineLength = lineCells;
+        maxLenGrew = true;
+      }
     }
 
     let lineTokens = tokensByLine[lineNum] || [];
@@ -364,7 +397,7 @@ function drawEditorContentToCanvas(
     const cx =
       gutterWidth +
       contentPaddingLeft +
-      columnToVisual(getRawLine(state.cursorLine), state.cursorColumn) * charWidth;
+      columnToCells(getRawLine(state.cursorLine), state.cursorColumn) * charWidth;
     const cy = state.getLineY(state.cursorLine);
 
     canvas.drawRect(
@@ -384,7 +417,7 @@ function drawEditorContentToCanvas(
     const drawHandle = (line: number, col: number) => {
       if (line >= firstLine && line <= lastLine) {
         const rawLine = getRawLine(line);
-        const visualCol = columnToVisual(rawLine, col);
+        const visualCol = columnToCells(rawLine, col);
         const x = gutterWidth + contentPaddingLeft + visualCol * charWidth;
         const y = state.getLineY(line);
 

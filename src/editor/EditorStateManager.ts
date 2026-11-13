@@ -74,38 +74,20 @@ function isEmojiCluster(text: string, s: number, e: number): boolean {
   return false;
 }
 
+/**
+ * UTF-16 column -> index in the tab-expanded line (every UTF-16 unit counts as 1).
+ * NOT pixels. Used to slice syntax tokens in adjustTokensForTabs().
+ */
 export function columnToVisual(lineText: string, col: number, tabSize: number = 4): number {
   if (!lineText) return col;
-  if (!MAY_HAVE_EMOJI.test(lineText)) {
-    let visualCol = 0;
-    const maxCol = Math.min(col, lineText.length);
-    for (let i = 0; i < maxCol; i++) {
-      if (lineText[i] === '\t') {
-        visualCol += tabSize - (visualCol % tabSize);
-      } else {
-        visualCol += 1;
-      }
-    }
-    if (col > lineText.length) {
-      visualCol += (col - lineText.length);
-    }
-    return visualCol;
-  }
   let visualCol = 0;
-  let i = 0;
   const maxCol = Math.min(col, lineText.length);
-  while (i < maxCol) {
+  for (let i = 0; i < maxCol; i++) {
     if (lineText[i] === '\t') {
       visualCol += tabSize - (visualCol % tabSize);
-      i++;
-      continue;
+    } else {
+      visualCol += 1;
     }
-    const next = nextGraphemeColumn(lineText, i);
-    if (next > maxCol) {
-      break;
-    }
-    visualCol += isEmojiCluster(lineText, i, next) ? 2 : 1;
-    i = next;
   }
   if (col > lineText.length) {
     visualCol += (col - lineText.length);
@@ -113,45 +95,108 @@ export function columnToVisual(lineText: string, col: number, tabSize: number = 
   return visualCol;
 }
 
+/** Inverse of columnToVisual() for plain text (units, not pixels). */
 export function visualToColumn(lineText: string, visualCol: number, tabSize: number = 4): number {
   if (!lineText || visualCol <= 0) return 0;
-  if (!MAY_HAVE_EMOJI.test(lineText)) {
-    let curVisual = 0;
-    for (let i = 0; i < lineText.length; i++) {
-      const advance = lineText[i] === '\t' ? (tabSize - (curVisual % tabSize)) : 1;
-      if (curVisual + advance / 2 >= visualCol) {
-        return i;
-      }
-      curVisual += advance;
-      if (curVisual >= visualCol) {
-        return i + 1;
-      }
-    }
-    return lineText.length + Math.max(0, visualCol - curVisual);
-  }
   let curVisual = 0;
-  let i = 0;
-  while (i < lineText.length) {
-    if (lineText[i] === '\t') {
-      const advance = tabSize - (curVisual % tabSize);
-      if (curVisual + advance / 2 >= visualCol) return i;
-      curVisual += advance;
-      if (curVisual >= visualCol) return i + 1;
-      i++;
-      continue;
-    }
-    const next = nextGraphemeColumn(lineText, i);
-    const advance = isEmojiCluster(lineText, i, next) ? 2 : 1;
+  for (let i = 0; i < lineText.length; i++) {
+    const advance = lineText[i] === '\t' ? (tabSize - (curVisual % tabSize)) : 1;
     if (curVisual + advance / 2 >= visualCol) {
       return i;
     }
     curVisual += advance;
     if (curVisual >= visualCol) {
-      return next;
+      return i + 1;
     }
-    i = next;
   }
   return lineText.length + Math.max(0, visualCol - curVisual);
+}
+
+/** Width of one emoji in monospace cells. Measured at startup (setEmojiCells), 2 until then. */
+let EMOJI_CELLS = 2;
+/** Upper bound for EMOJI_CELLS (also used as a cheap width guard in the renderer). */
+export const EMOJI_CELLS_MAX = 3;
+export function setEmojiCells(cells: number): void {
+  EMOJI_CELLS = Number.isFinite(cells) && cells >= 1.5 && cells <= EMOJI_CELLS_MAX ? cells : 2;
+}
+
+/**
+ * Horizontal PIXEL position of UTF-16 column `col`, in monospace cells (fractional).
+ * Matches how the line is really drawn: tabs are expanded to spaces by UTF-16 unit count
+ * (same as expandTabs), plain units are 1 cell, and every emoji cluster is EMOJI_CELLS wide.
+ */
+export function columnToCells(lineText: string, col: number, tabSize: number = 4): number {
+  if (!lineText) return col;
+  if (!MAY_HAVE_EMOJI.test(lineText)) return columnToVisual(lineText, col, tabSize);
+  const len = lineText.length;
+  const maxCol = Math.min(col, len);
+  let units = 0; // position in the tab-expanded string
+  let cells = 0; // position in pixels / charWidth
+  let i = 0;
+  while (i < maxCol) {
+    if (lineText[i] === '\t') {
+      const spaces = tabSize - (units % tabSize);
+      units += spaces;
+      cells += spaces;
+      i++;
+      continue;
+    }
+    const end = nextGraphemeColumn(lineText, i);
+    if (isEmojiCluster(lineText, i, end)) {
+      if (end > maxCol) break; // cursor inside the cluster: stay at its start
+      units += end - i;
+      cells += EMOJI_CELLS;
+      i = end;
+    } else {
+      units += 1;
+      cells += 1;
+      i++;
+    }
+  }
+  if (col > len) cells += col - len;
+  return cells;
+}
+
+/** Inverse of columnToCells(): nearest UTF-16 column for a (fractional) position in cells. */
+export function cellsToColumn(lineText: string, cells: number, tabSize: number = 4): number {
+  if (!lineText || cells <= 0) return 0;
+  if (!MAY_HAVE_EMOJI.test(lineText)) return visualToColumn(lineText, cells, tabSize);
+  const len = lineText.length;
+  let units = 0;
+  let cur = 0;
+  let i = 0;
+  while (i < len) {
+    let advance: number;
+    let end: number;
+    let unitAdvance: number;
+    if (lineText[i] === '\t') {
+      advance = tabSize - (units % tabSize);
+      unitAdvance = advance;
+      end = i + 1;
+    } else {
+      end = nextGraphemeColumn(lineText, i);
+      if (isEmojiCluster(lineText, i, end)) {
+        advance = EMOJI_CELLS;
+        unitAdvance = end - i;
+      } else {
+        advance = 1;
+        unitAdvance = 1;
+        end = i + 1;
+      }
+    }
+    if (cur + advance / 2 >= cells) return i;
+    cur += advance;
+    units += unitAdvance;
+    if (cur >= cells) return end;
+    i = end;
+  }
+  return len + Math.max(0, Math.round(cells - cur));
+}
+
+/** Pixel width, in cells, of an already tab-expanded line. Used for the horizontal scroll range. */
+export function lineWidthCells(expandedLine: string): number {
+  if (!MAY_HAVE_EMOJI.test(expandedLine)) return expandedLine.length;
+  return columnToCells(expandedLine, expandedLine.length);
 }
 
 const INDENT_WIDTH = 2;
@@ -1096,7 +1141,7 @@ export class EditorStateManager {
 
   getVisualColumn(line: number, column: number): number {
     const rawLine = this.engine.getLine(line);
-    return columnToVisual(rawLine, column);
+    return columnToCells(rawLine, column);
   }
 
   /**
@@ -1120,6 +1165,7 @@ export class EditorStateManager {
     return this.getLineY(this.cursorLine);
   }
 
+  /** Widest rendered line so far, in monospace cells (an emoji counts as ~2). */
   maxRenderedLineLength = 0;
 
   get maxScrollX(): number {
@@ -1214,10 +1260,10 @@ export class EditorStateManager {
 
     // Compute column (only in content area, not gutter)
     const contentX = canvasX - gutterWidth - contentPaddingLeft + this.scrollOffset.x;
-    let visualCol = Math.max(0, Math.round(contentX / this.charWidth));
+    const cellPos = Math.max(0, contentX / this.charWidth);
 
     const lineText = this.engine.getLine(line);
-    let col = visualToColumn(lineText, visualCol);
+    let col = cellsToColumn(lineText, cellPos);
 
     // Clamp column to line length
     const lineLen = this.engine.getLineLength(line);
@@ -1438,7 +1484,7 @@ export class EditorStateManager {
     }
 
     const lineText = this.engine.getLine(this.cursorLine);
-    const visualCol = columnToVisual(lineText, this.cursorColumn);
+    const visualCol = columnToCells(lineText, this.cursorColumn);
     const docX =
       EDITOR_THEME.gutterWidth +
       EDITOR_THEME.contentPaddingLeft +
