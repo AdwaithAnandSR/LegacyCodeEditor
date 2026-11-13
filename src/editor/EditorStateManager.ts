@@ -439,6 +439,10 @@ export class EditorStateManager {
 
   // ── Scroll & Reanimated Shared Values ───────────────────────────────────
   private _scrollOffsetInternal: ScrollOffset = { x: 0, y: 0 };
+  /** Last scroll position we COMMANDED from scrollToCursor (valid until _scrollTargetUntil). */
+  private _scrollTargetX = 0;
+  private _scrollTargetY = 0;
+  private _scrollTargetUntil = 0;
   private _scrollXShared: SharedValue<number> | null = null;
   private _scrollYShared: SharedValue<number> | null = null;
   private _maxScrollXShared: SharedValue<number> | null = null;
