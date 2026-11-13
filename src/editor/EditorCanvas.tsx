@@ -346,8 +346,10 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       <GestureDetector gesture={gesture}>
         <View style={styles.container} onLayout={handleLayout}>
           <Canvas style={StyleSheet.absoluteFill}>
-            <Group clip={contentClipRect} transform={contentTransform}>
-              <Picture picture={contentPictureSV} />
+            <Group clip={contentClipRect}>
+              <Group transform={contentTransform}>
+                <Picture picture={contentPictureSV} />
+              </Group>
             </Group>
 
             <Rect
@@ -364,8 +366,10 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
               strokeWidth={1}
             />
 
-            <Group clip={gutterClipRect} transform={gutterTransform}>
-              <Picture picture={gutterPictureSV} />
+            <Group clip={gutterClipRect}>
+              <Group transform={gutterTransform}>
+                <Picture picture={gutterPictureSV} />
+              </Group>
             </Group>
           </Canvas>
 
