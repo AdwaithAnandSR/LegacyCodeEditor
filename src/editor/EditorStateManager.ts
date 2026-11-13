@@ -1002,6 +1002,18 @@ export class EditorStateManager {
     this._momentumAnimId = requestAnimationFrame(tick);
   }
 
+  /**
+   * Scroll position to base decisions on. Shortly after we commanded a scroll we trust our own
+   * target (reading an animating shared value from JS is stale/laggy); otherwise the live value.
+   */
+  private getScrollBase(): { x: number; y: number } {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (now < this._scrollTargetUntil) {
+      return { x: this._scrollTargetX, y: this._scrollTargetY };
+    }
+    return this.scrollOffset;
+  }
+
   stopMomentumScroll() {
     if (this._scrollXShared) cancelAnimation(this._scrollXShared);
     if (this._scrollYShared) cancelAnimation(this._scrollYShared);
@@ -1020,14 +1032,17 @@ export class EditorStateManager {
     const finalY = Math.max(0, Math.min(this.maxScrollY, targetY));
     
     if (this._scrollXShared && this._scrollYShared) {
-      const curX = this._scrollXShared.value;
-      const curY = this._scrollYShared.value;
-      if (Math.abs(curX - finalX) > 1) {
-        this._scrollXShared.value = withTiming(finalX, { duration: 180 });
-      }
-      if (Math.abs(curY - finalY) > 1) {
-        this._scrollYShared.value = withTiming(finalY, { duration: 180 });
-      }
+      const SNAP_DISTANCE = 160; // px: below this we jump instantly, above it we animate
+      const base = this.getScrollBase();
+      const animateX = Math.abs(base.x - finalX) > SNAP_DISTANCE;
+      const animateY = Math.abs(base.y - finalY) > SNAP_DISTANCE;
+      // Always write a value (also cancels/overrides whatever stopMomentumScroll() interrupted).
+      this._scrollXShared.value = animateX ? withTiming(finalX, { duration: 180 }) : finalX;
+      this._scrollYShared.value = animateY ? withTiming(finalY, { duration: 180 }) : finalY;
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      this._scrollTargetX = finalX;
+      this._scrollTargetY = finalY;
+      this._scrollTargetUntil = now + (animateX || animateY ? 220 : 100);
       return;
     }
 
@@ -1548,13 +1563,14 @@ export class EditorStateManager {
   scrollToCursor(forceCenter: boolean = false, preventTypewriter: boolean = false) {
     if (this.viewport.height === 0) return;
 
+    const base = this.getScrollBase();
     const { lineHeight, contentPaddingTop } = EDITOR_THEME;
     const cursorY = contentPaddingTop + (this.cursorLine - 1) * lineHeight;
     
     // --- Y Scrolling Math ---
-    let targetY = this.scrollOffset.y;
+    let targetY = base.y;
     const visibleHeight = Math.max(1, this.viewport.height - this.keyboardHeight);
-    const viewTop = this.scrollOffset.y;
+    const viewTop = base.y;
     const viewBottom = viewTop + visibleHeight;
     
     // Only apply typewriter centering if keyboard is visible, we are typing (not tapping/dragging),
@@ -1575,7 +1591,7 @@ export class EditorStateManager {
     }
 
     // --- X Scrolling Math ---
-    let targetX = this.scrollOffset.x;
+    let targetX = base.x;
     if (this.charWidth > 0) {
       // 10% of the screen width margin means it will auto-scroll when the cursor crosses the 90% mark
       const SCROLL_MARGIN_X = Math.max(20, this.viewport.width * 0.1);
@@ -1584,11 +1600,11 @@ export class EditorStateManager {
       const absoluteCursorX = EDITOR_THEME.gutterWidth + EDITOR_THEME.contentPaddingLeft + textXOffset;
       
       // Left boundary (prevent scrolling left text under the fixed gutter)
-      if (textXOffset - this.scrollOffset.x < SCROLL_MARGIN_X) {
+      if (textXOffset - base.x < SCROLL_MARGIN_X) {
         targetX = textXOffset - SCROLL_MARGIN_X;
       } 
       // Right boundary (prevent text going off the right edge)
-      else if (absoluteCursorX - this.scrollOffset.x > this.viewport.width - SCROLL_MARGIN_X) {
+      else if (absoluteCursorX - base.x > this.viewport.width - SCROLL_MARGIN_X) {
         targetX = absoluteCursorX - this.viewport.width + SCROLL_MARGIN_X;
       }
     }
