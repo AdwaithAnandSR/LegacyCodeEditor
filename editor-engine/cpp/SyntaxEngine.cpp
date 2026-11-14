@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cstring>
 #include <algorithm>
+#include <unordered_map>
+#include <vector>
 
 namespace margelo::nitro::editorengine {
 
@@ -210,6 +212,46 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
     };
     std::vector<RawToken> rawTokens;
 
+    // Per-row cache: fetch each line ONCE; byte -> UTF-16 column becomes O(1).
+    struct RowInfo {
+        std::string text;
+        bool ascii = true;
+        std::vector<uint32_t> map; // byte offset -> utf16 column (non-ASCII rows only)
+        double u16len = 0;
+        double toCol(uint32_t byteOff) const {
+            if (ascii) return static_cast<double>(std::min<size_t>(byteOff, text.size()));
+            return static_cast<double>(map[std::min<size_t>(byteOff, text.size())]);
+        }
+    };
+    std::unordered_map<uint32_t, RowInfo> rows;
+    auto rowInfo = [&](uint32_t r) -> RowInfo& {
+        auto it = rows.find(r);
+        if (it != rows.end()) return it->second;
+        RowInfo& ri = rows[r];
+        ri.text = pieceTable_->getLine(r);
+        for (unsigned char c : ri.text) { if (c >= 0x80) { ri.ascii = false; break; } }
+        if (ri.ascii) {
+            ri.u16len = static_cast<double>(ri.text.size());
+        } else {
+            ri.map.assign(ri.text.size() + 1, 0);
+            uint32_t col = 0;
+            size_t i = 0;
+            const size_t n = ri.text.size();
+            while (i < n) {
+                unsigned char c = static_cast<unsigned char>(ri.text[i]);
+                size_t step = c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 1;
+                uint32_t units = (step == 4) ? 2 : 1;
+                for (size_t k = 0; k < step && i + k <= n; ++k) ri.map[i + k] = col;
+                i += step;
+                col += units;
+                if (i > n) i = n;
+            }
+            ri.map[n] = col;
+            ri.u16len = static_cast<double>(col);
+        }
+        return ri;
+    };
+
     TSQueryMatch match;
     while (ts_query_cursor_next_match(cursor, &match)) {
         for (uint16_t i = 0; i < match.capture_count; ++i) {
@@ -229,13 +271,9 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
             uint32_t rEnd = std::min(end.row, maxRow);
 
             for (uint32_t r = rStart; r <= rEnd; ++r) {
-                std::string lineStr = pieceTable_->getLine(r);
-                double sCol = (r == start.row) 
-                    ? static_cast<double>(utf8_util::byteOffsetToUtf16Column(lineStr, start.column)) 
-                    : 0.0;
-                double eCol = (r == end.row) 
-                    ? static_cast<double>(utf8_util::byteOffsetToUtf16Column(lineStr, end.column)) 
-                    : static_cast<double>(utf8_util::utf16Length(lineStr));
+                RowInfo& ri = rowInfo(r);
+                double sCol = (r == start.row) ? ri.toCol(start.column) : 0.0;
+                double eCol = (r == end.row) ? ri.toCol(end.column) : ri.u16len;
                 
                 if (eCol > sCol) {
                     rawTokens.push_back(RawToken{

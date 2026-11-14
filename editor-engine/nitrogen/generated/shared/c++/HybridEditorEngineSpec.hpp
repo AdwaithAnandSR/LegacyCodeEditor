@@ -41,8 +41,8 @@ namespace margelo::nitro::editorengine { struct SyntaxToken; }
 #include <vector>
 #include "LineInfo.hpp"
 #include "SearchResult.hpp"
-#include "UndoRedoState.hpp"
 #include <optional>
+#include "UndoRedoState.hpp"
 #include "SyntaxToken.hpp"
 
 namespace margelo::nitro::editorengine {
@@ -104,8 +104,8 @@ namespace margelo::nitro::editorengine {
       virtual TextRange getWordRangeAtPosition(double line, double column) = 0;
       virtual std::vector<SearchResult> findText(const std::string& query, bool caseSensitive, bool wholeWord, bool isRegex) = 0;
       virtual double findAndReplace(const std::string& query, const std::string& replacement, bool caseSensitive, bool wholeWord, bool isRegex) = 0;
-      virtual void undo() = 0;
-      virtual void redo() = 0;
+      virtual std::optional<CursorPosition> undo() = 0;
+      virtual std::optional<CursorPosition> redo() = 0;
       virtual UndoRedoState getUndoRedoState() = 0;
       virtual void beginUndoGroup() = 0;
       virtual void endUndoGroup() = 0;

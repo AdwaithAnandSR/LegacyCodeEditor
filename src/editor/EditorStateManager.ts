@@ -659,9 +659,10 @@ export class EditorStateManager {
   }
 
   undo() {
-    this.engine.undo();
+    const pos = this.engine.undo();
+    if (!pos) return; // nothing to undo
     this.selection = null;
-    this.setCursor(this.cursorLine, this.cursorColumn);
+    this.setCursor(pos.line, pos.column);
     this.clearOSBuffer?.();
     this.resetBlink();
     this.scrollToCursor(true);
@@ -669,9 +670,10 @@ export class EditorStateManager {
   }
 
   redo() {
-    this.engine.redo();
+    const pos = this.engine.redo();
+    if (!pos) return; // nothing to redo
     this.selection = null;
-    this.setCursor(this.cursorLine, this.cursorColumn);
+    this.setCursor(pos.line, pos.column);
     this.clearOSBuffer?.();
     this.resetBlink();
     this.scrollToCursor(true);

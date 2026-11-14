@@ -410,6 +410,49 @@ public:
     }
 
     /**
+     * UTF-16 length of a line WITHOUT copying its text.
+     * Same result as utf8_util::utf16Length(getLine(lineIndex)) for valid UTF-8.
+     */
+    size_t getLineUtf16Length(size_t lineIndex) const {
+        rebuildLineCacheIfNeeded();
+        if (lineIndex >= lineStartOffsets_.size()) return 0;
+
+        size_t start = lineStartOffsets_[lineIndex];
+        size_t end;
+        if (lineIndex + 1 < lineStartOffsets_.size()) {
+            end = lineStartOffsets_[lineIndex + 1];
+            if (end > start) {
+                end--; // skip the \n
+                if (end > start && charAt(end - 1) == '\r') end--;
+            }
+        } else {
+            end = length();
+        }
+
+        size_t units = 0;
+        size_t pos = 0;
+        for (const auto& piece : pieces_) {
+            size_t pieceEnd = pos + piece.length;
+            if (pos >= end) break;
+            if (pieceEnd <= start) { pos = pieceEnd; continue; }
+
+            size_t from = (start > pos) ? (start - pos) : 0;
+            size_t to = (end < pieceEnd) ? (end - pos) : piece.length;
+
+            const std::string& buf = (piece.buffer == BufferType::ORIGINAL)
+                                     ? originalBuffer_ : addBuffer_;
+            const unsigned char* p = reinterpret_cast<const unsigned char*>(buf.data()) + piece.start;
+            for (size_t k = from; k < to; ++k) {
+                unsigned char c = p[k];
+                if ((c & 0xC0) == 0x80) continue;   // UTF-8 continuation byte
+                units += (c >= 0xF0) ? 2 : 1;       // 4-byte lead = surrogate pair
+            }
+            pos = pieceEnd;
+        }
+        return units;
+    }
+
+    /**
      * Get a substring by byte offsets [start, end).
      */
     std::string getRange(size_t start, size_t end) const {
@@ -503,20 +546,20 @@ public:
     size_t undoCount() const { return undoStack_.size(); }
     size_t redoCount() const { return redoStack_.size(); }
 
-    std::optional<UndoStep> popUndo() {
-        if (undoStack_.empty()) return std::nullopt;
-        UndoStep step = std::move(undoStack_.back());
+    // Moves the top undo step onto the redo stack and returns a pointer to it.
+    // The pointer stays valid until the next push onto redoStack_.
+    const UndoStep* popUndo() {
+        if (undoStack_.empty()) return nullptr;
+        redoStack_.push_back(std::move(undoStack_.back()));
         undoStack_.pop_back();
-        redoStack_.push_back(step);
-        return step;
+        return &redoStack_.back();
     }
 
-    std::optional<UndoStep> popRedo() {
-        if (redoStack_.empty()) return std::nullopt;
-        UndoStep step = std::move(redoStack_.back());
+    const UndoStep* popRedo() {
+        if (redoStack_.empty()) return nullptr;
+        undoStack_.push_back(std::move(redoStack_.back()));
         redoStack_.pop_back();
-        undoStack_.push_back(step);
-        return step;
+        return &undoStack_.back();
     }
 
     void beginGroup() {
@@ -885,8 +928,7 @@ public:
         if (lc == 0) return 0.0;
         size_t idx = static_cast<size_t>(std::max(1.0, lineNumber)) - 1;
         if (idx >= lc) return 0.0;
-        std::string line = pieceTable_.getLine(idx);
-        return static_cast<double>(utf8_util::utf16Length(line));
+        return static_cast<double>(pieceTable_.getLineUtf16Length(idx));
     }
 
     LineInfo getLineInfo(double lineNumber) override {
@@ -1150,10 +1192,10 @@ public:
 
     // ─── Undo / Redo (Inverse Edit Based) ────────────────────────────────
 
-    void undo() override {
-        auto stepOpt = undoManager_.popUndo();
-        if (!stepOpt.has_value()) return;
-        const auto& step = stepOpt.value();
+    std::optional<CursorPosition> undo() override {
+        const UndoStep* stepPtr = undoManager_.popUndo();
+        if (!stepPtr || stepPtr->edits.empty()) return std::nullopt;
+        const UndoStep& step = *stepPtr;
 
         // Apply inverse edits in reverse order
         for (auto it = step.edits.rbegin(); it != step.edits.rend(); ++it) {
@@ -1181,12 +1223,15 @@ public:
 
         documentVersion_ = step.edits.front().versionBefore;
         modified_ = (documentVersion_ != savedDocumentVersion_);
+
+        const auto& lastApplied = step.edits.front();
+        return toPosition(lastApplied.byteOffset + lastApplied.textBefore.size());
     }
 
-    void redo() override {
-        auto stepOpt = undoManager_.popRedo();
-        if (!stepOpt.has_value()) return;
-        const auto& step = stepOpt.value();
+    std::optional<CursorPosition> redo() override {
+        const UndoStep* stepPtr = undoManager_.popRedo();
+        if (!stepPtr || stepPtr->edits.empty()) return std::nullopt;
+        const UndoStep& step = *stepPtr;
 
         // Apply forward edits
         for (const auto& edit : step.edits) {
@@ -1213,6 +1258,9 @@ public:
 
         documentVersion_ = step.edits.back().versionAfter;
         modified_ = (documentVersion_ != savedDocumentVersion_);
+
+        const auto& lastApplied = step.edits.back();
+        return toPosition(lastApplied.byteOffset + lastApplied.textAfter.size());
     }
 
     UndoRedoState getUndoRedoState() override {
@@ -1282,32 +1330,35 @@ public:
         size_t s = static_cast<size_t>(std::max(1.0, startLine));
         size_t e = static_cast<size_t>(std::max(1.0, endLine));
         e = std::min(e, pieceTable_.lineCount());
+        if (s > e) return;
         std::string indent = insertSpaces_ ? std::string(static_cast<size_t>(tabSize_), ' ') : "\t";
 
+        // Collect ALL line-start offsets first (the line index is clean here), then edit bottom-up.
+        std::vector<size_t> offsets;
+        offsets.reserve(e - s + 1);
+        for (size_t i = s; i <= e; ++i) offsets.push_back(pieceTable_.getLineStartOffset(i - 1));
+
         undoManager_.beginGroup();
-        for (size_t i = e; i >= s && i > 0; --i) {
-            size_t offset = pieceTable_.getLineStartOffset(i - 1);
-            CursorPosition startPos = toPosition(offset);
-            recordEdit(offset, "", indent);
-            pieceTable_.insert(offset, indent);
-            size_t newOffset = offset + indent.size();
-            CursorPosition newPos = toPosition(newOffset);
-            if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, offset, newOffset, startPos, startPos, newPos);
+        for (auto it = offsets.rbegin(); it != offsets.rend(); ++it) {
+            recordEdit(*it, "", indent);
+            pieceTable_.insert(*it, indent);
         }
         undoManager_.endGroup();
+        if (syntaxEngine_) syntaxEngine_->parseFull(); // ONE parse for the whole block
     }
 
     void outdentLines(double startLine, double endLine) override {
         size_t s = static_cast<size_t>(std::max(1.0, startLine));
         size_t e = static_cast<size_t>(std::max(1.0, endLine));
         e = std::min(e, pieceTable_.lineCount());
+        if (s > e) return;
 
-        undoManager_.beginGroup();
-        for (size_t i = e; i >= s && i > 0; --i) {
-            size_t idx = i - 1;
-            std::string line = pieceTable_.getLine(idx);
-            size_t offset = pieceTable_.getLineStartOffset(idx);
-
+        // Collect every cut first (line index is clean), then apply bottom-up.
+        struct Cut { size_t off; size_t len; };
+        std::vector<Cut> cuts;
+        for (size_t i = s; i <= e; ++i) {
+            std::string line = pieceTable_.getLine(i - 1);
+            size_t offset = pieceTable_.getLineStartOffset(i - 1);
             size_t toRemove = 0;
             if (!line.empty() && line[0] == '\t') {
                 toRemove = 1;
@@ -1318,21 +1369,18 @@ public:
                 }
                 toRemove = spaces;
             }
+            if (toRemove > 0) cuts.push_back({offset, toRemove});
+        }
+        if (cuts.empty()) return;
 
-            if (toRemove > 0) {
-                CursorPosition startPos = toPosition(offset);
-                size_t endOff = offset + toRemove;
-                CursorPosition oldEndPos = toPosition(endOff);
-                std::string deleted = pieceTable_.getRange(offset, endOff);
-
-                recordEdit(offset, deleted, "");
-                pieceTable_.remove(offset, toRemove);
-
-                CursorPosition newEndPos = toPosition(offset);
-                if (syntaxEngine_) syntaxEngine_->applyEditAndParse(offset, endOff, offset, startPos, oldEndPos, newEndPos);
-            }
+        undoManager_.beginGroup();
+        for (auto it = cuts.rbegin(); it != cuts.rend(); ++it) {
+            std::string deleted = pieceTable_.getRange(it->off, it->off + it->len);
+            recordEdit(it->off, deleted, "");
+            pieceTable_.remove(it->off, it->len);
         }
         undoManager_.endGroup();
+        if (syntaxEngine_) syntaxEngine_->parseFull(); // ONE parse for the whole block
     }
 
     // ─── Bracket Matching ───────────────────────────────────────────────

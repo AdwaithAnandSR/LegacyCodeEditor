@@ -198,10 +198,10 @@ export interface EditorEngine
 
   // ─── Undo / Redo ──────────────────────────────────────────────────────────
 
-  /** Undo the last edit operation. */
-  undo(): void;
-  /** Redo the last undone edit operation. */
-  redo(): void;
+  /** Undo the last edit operation. Returns where the cursor should go, or undefined if nothing to undo. */
+  undo(): CursorPosition | undefined;
+  /** Redo the last undone edit operation. Returns where the cursor should go, or undefined if nothing to redo. */
+  redo(): CursorPosition | undefined;
   /** Get the current undo/redo state. */
   getUndoRedoState(): UndoRedoState;
   /** Begin grouping subsequent edits into a single undo step. */

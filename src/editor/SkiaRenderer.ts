@@ -368,16 +368,6 @@ function drawEditorContentToCanvas(
     let lineTokens = tokensByLine[lineNum] || [];
     if (lineTokens.length > 0) {
       lineTokens = adjustTokensForTabs(rawLine, lineTokens);
-      lineTokens.sort((a, b) => a.startColumn - b.startColumn || (b.endColumn - a.endColumn));
-      const filtered = [];
-      let lastEnd = -1;
-      for (const t of lineTokens) {
-        if (t.startColumn >= lastEnd) {
-          filtered.push(t);
-          lastEnd = t.endColumn;
-        }
-      }
-      lineTokens = filtered;
     }
 
     const para = getCachedLineParagraph(lineText, fontProvider, lineTokens, 0);
