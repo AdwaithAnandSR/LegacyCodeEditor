@@ -358,6 +358,36 @@ export class EditorStateManager {
   /** Whether the cursor blink is currently in "visible" phase. */
   cursorVisible = true;
 
+  // ── JSI Cache (eliminates redundant getLine / lineCount crossings per keystroke) ──
+  private _cachedLineCount = 1;
+  private _cachedLineNum = -1;
+  private _cachedLineText = "";
+
+  private invalidateLineCache() {
+    this._cachedLineNum = -1;
+    this._cachedLineText = "";
+    this._cachedLineCount = this.engine.lineCount;
+  }
+
+  primeCursorLineCache(lineNum: number, text: string) {
+    this._cachedLineNum = lineNum;
+    this._cachedLineText = text;
+  }
+
+  getLineCached(lineNum: number): string {
+    if (this._cachedLineNum === lineNum) {
+      return this._cachedLineText;
+    }
+    const text = this.engine.getLine(lineNum);
+    this._cachedLineNum = lineNum;
+    this._cachedLineText = text;
+    return text;
+  }
+
+  get lineCount(): number {
+    return this._cachedLineCount;
+  }
+
   // ── Selection ────────────────────────────────────────────────────────────
   selection: TextRange | null = null;
   activeHandle: 'start' | 'end' | null = null;
@@ -481,12 +511,19 @@ export class EditorStateManager {
     this.updateMaxScrollShared();
   }
 
+  private _lastMaxScrollX = -1;
+  private _lastMaxScrollY = -1;
+
   updateMaxScrollShared() {
-    if (this._maxScrollXShared) {
-      this._maxScrollXShared.value = this.maxScrollX;
+    const mx = this.maxScrollX;
+    const my = this.maxScrollY;
+    if (this._maxScrollXShared && mx !== this._lastMaxScrollX) {
+      this._lastMaxScrollX = mx;
+      this._maxScrollXShared.value = mx;
     }
-    if (this._maxScrollYShared) {
-      this._maxScrollYShared.value = this.maxScrollY;
+    if (this._maxScrollYShared && my !== this._lastMaxScrollY) {
+      this._lastMaxScrollY = my;
+      this._maxScrollYShared.value = my;
     }
   }
 
@@ -510,6 +547,7 @@ export class EditorStateManager {
     this.engine = createEditorEngine();
     this.engine.tabSize = INDENT_WIDTH;
     this.engine.loadContent("");
+    this.invalidateLineCache();
   }
 
   // ── UI Subscription (for React overlays) ─────────────────────────────────
@@ -573,6 +611,7 @@ export class EditorStateManager {
 
   loadContent(text: string) {
     this.engine.loadContent(text);
+    this.invalidateLineCache();
     this.cursorLine = 1;
     this.cursorColumn = 0;
     this.selection = null;
@@ -591,17 +630,72 @@ export class EditorStateManager {
     const normSel = this.getNormalizedSelection();
     if (normSel) {
       const newPos = this.engine.replaceText(normSel, text);
-      this.setCursor(newPos.line, newPos.column);
-      this.selection = null;
+      this.invalidateLineCache();
+      this.setCursorTrusted(newPos.line, newPos.column);
     } else {
       const newPos = this.engine.insertText(
         this.cursorLine,
         this.cursorColumn,
         text,
       );
-      this.setCursor(newPos.line, newPos.column);
+      this.invalidateLineCache();
+      this.setCursorTrusted(newPos.line, newPos.column);
     }
-    this.resetBlink();
+    this.scrollToCursor();
+    this.invalidate();
+  }
+
+  /**
+   * Atomically replace `backspaceCount` UTF-16 code units before the cursor with `newText`
+   * in a single C++ replaceText call, single undo entry, and single render invalidation.
+   */
+  replaceBeforeCursor(backspaceCount: number, newText: string) {
+    const normSel = this.getNormalizedSelection();
+    if (normSel) {
+      const newPos = this.engine.replaceText(normSel, newText);
+      this.invalidateLineCache();
+      this.setCursorTrusted(newPos.line, newPos.column);
+      this.scrollToCursor();
+      this.invalidate();
+      return;
+    }
+
+    let line = this.cursorLine;
+    let col = this.cursorColumn;
+    if (backspaceCount === 1) {
+      if (col > 0) {
+        col = prevGraphemeColumn(this.getLineCached(line), col);
+      } else if (line > 1) {
+        line--;
+        col = this.engine.getLineLength(line);
+      }
+    } else if (backspaceCount > 1) {
+      let remaining = backspaceCount;
+      while (remaining > 0 && (line > 1 || col > 0)) {
+        if (col === 0) {
+          line--;
+          col = this.engine.getLineLength(line);
+          remaining -= 1;
+          continue;
+        }
+        const take = Math.min(col, remaining);
+        col -= take;
+        remaining -= take;
+      }
+      col = snapColumnInText(this.getLineCached(line), col);
+    }
+
+    const newPos = this.engine.replaceText(
+      {
+        startLine: line,
+        startColumn: col,
+        endLine: this.cursorLine,
+        endColumn: this.cursorColumn,
+      },
+      newText,
+    );
+    this.invalidateLineCache();
+    this.setCursorTrusted(newPos.line, newPos.column);
     this.scrollToCursor();
     this.invalidate();
   }
@@ -611,13 +705,13 @@ export class EditorStateManager {
     if (normSel) {
       const text = this.engine.getTextInRange(normSel);
       const newPos = this.engine.replaceText(normSel, openStr + text + closeStr);
-      this.setCursor(newPos.line, newPos.column);
-      this.selection = null;
+      this.invalidateLineCache();
+      this.setCursorTrusted(newPos.line, newPos.column);
     } else {
       const newPos = this.engine.insertText(this.cursorLine, this.cursorColumn, openStr + closeStr);
-      this.setCursor(newPos.line, newPos.column - closeStr.length);
+      this.invalidateLineCache();
+      this.setCursorTrusted(newPos.line, newPos.column - closeStr.length);
     }
-    this.resetBlink();
     this.scrollToCursor();
     this.invalidate();
   }
@@ -633,8 +727,8 @@ export class EditorStateManager {
     if (!normSel) return null;
     const text = this.engine.getTextInRange(normSel);
     this.engine.deleteText(normSel);
-    this.setCursor(normSel.startLine, normSel.startColumn);
-    this.selection = null;
+    this.invalidateLineCache();
+    this.setCursorTrusted(normSel.startLine, normSel.startColumn);
     this.clearOSBuffer?.();
     this.invalidate();
     return text;
@@ -650,8 +744,8 @@ export class EditorStateManager {
     } else {
       newPos = this.engine.insertText(this.cursorLine, this.cursorColumn, text);
     }
-    this.setCursor(newPos.line, newPos.column);
-    this.selection = null;
+    this.invalidateLineCache();
+    this.setCursorTrusted(newPos.line, newPos.column);
     this.floatingMenuVisible = false;
     this.clearOSBuffer?.();
     this.scrollToCursor();
@@ -661,10 +755,9 @@ export class EditorStateManager {
   undo() {
     const pos = this.engine.undo();
     if (!pos) return; // nothing to undo
-    this.selection = null;
-    this.setCursor(pos.line, pos.column);
+    this.invalidateLineCache();
+    this.setCursorTrusted(pos.line, pos.column);
     this.clearOSBuffer?.();
-    this.resetBlink();
     this.scrollToCursor(true);
     this.invalidate();
   }
@@ -672,10 +765,9 @@ export class EditorStateManager {
   redo() {
     const pos = this.engine.redo();
     if (!pos) return; // nothing to redo
-    this.selection = null;
-    this.setCursor(pos.line, pos.column);
+    this.invalidateLineCache();
+    this.setCursorTrusted(pos.line, pos.column);
     this.clearOSBuffer?.();
-    this.resetBlink();
     this.scrollToCursor(true);
     this.invalidate();
   }
@@ -686,6 +778,7 @@ export class EditorStateManager {
     if (normSel && normSel.startLine !== normSel.endLine) {
       const sel = this.selection!;
       this.engine.indentLines(normSel.startLine, normSel.endLine);
+      this.invalidateLineCache();
       // Keep the multi-line selection so Tab can be pressed repeatedly.
       // Column 0 stays 0 so whole-line selections stay whole-line.
       const shift = (c: number) => (c === 0 ? 0 : c + INDENT_WIDTH);
@@ -699,11 +792,12 @@ export class EditorStateManager {
     } else {
       if (normSel) {
         const newPos = this.engine.replaceText(normSel, indentStr);
-        this.setCursor(newPos.line, newPos.column);
-        this.selection = null;
+        this.invalidateLineCache();
+        this.setCursorTrusted(newPos.line, newPos.column);
       } else {
         const newPos = this.engine.insertText(this.cursorLine, this.cursorColumn, indentStr);
-        this.setCursor(newPos.line, newPos.column);
+        this.invalidateLineCache();
+        this.setCursorTrusted(newPos.line, newPos.column);
       }
     }
     this.resetBlink();
@@ -734,12 +828,16 @@ export class EditorStateManager {
       };
       const newCursorColumn = cut(this.cursorLine, this.cursorColumn);
       this.engine.outdentLines(normSel.startLine, normSel.endLine);
+      this.invalidateLineCache();
       this.selection = newSel;
       this.cursorColumn = newCursorColumn;
     } else {
       const removed = this.removableIndent(this.cursorLine);
-      if (removed > 0) this.engine.outdentLine(this.cursorLine);
-      this.setCursor(this.cursorLine, Math.max(0, this.cursorColumn - removed));
+      if (removed > 0) {
+        this.engine.outdentLine(this.cursorLine);
+        this.invalidateLineCache();
+      }
+      this.setCursorTrusted(this.cursorLine, Math.max(0, this.cursorColumn - removed));
     }
     this.resetBlink();
     this.scrollToCursor();
@@ -753,9 +851,8 @@ export class EditorStateManager {
     const normSel = this.getNormalizedSelection();
     if (normSel) {
       this.engine.deleteText(normSel);
-      this.setCursor(normSel.startLine, normSel.startColumn);
-      this.selection = null;
-      this.resetBlink();
+      this.invalidateLineCache();
+      this.setCursorTrusted(normSel.startLine, normSel.startColumn);
       this.scrollToCursor();
       this.invalidate();
       return;
@@ -768,11 +865,9 @@ export class EditorStateManager {
       let deleteColStart: number;
 
       if (this.cursorColumn > 0) {
-        // Delete one character on the same line
         deleteLine = this.cursorLine;
-        deleteColStart = prevGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
+        deleteColStart = prevGraphemeColumn(this.getLineCached(this.cursorLine), this.cursorColumn);
       } else {
-        // At column 0: merge with previous line
         deleteLine = this.cursorLine - 1;
         deleteColStart = this.engine.getLineLength(deleteLine);
       }
@@ -783,9 +878,9 @@ export class EditorStateManager {
         endLine: this.cursorLine,
         endColumn: this.cursorColumn,
       });
-      this.setCursor(deleteLine, deleteColStart);
+      this.invalidateLineCache();
+      this.setCursorTrusted(deleteLine, deleteColStart);
     } else {
-      // Bulk delete. `count` is in UTF-16 units (that is what the hidden TextInput reports).
       let line = this.cursorLine;
       let col = this.cursorColumn;
       let remaining = count;
@@ -793,14 +888,14 @@ export class EditorStateManager {
         if (col === 0) {
           line--;
           col = this.engine.getLineLength(line);
-          remaining -= 1; // a line break counts as one unit
+          remaining -= 1;
           continue;
         }
         const take = Math.min(col, remaining);
         col -= take;
         remaining -= take;
       }
-      col = snapColumnInText(this.engine.getLine(line), col);
+      col = snapColumnInText(this.getLineCached(line), col);
 
       this.engine.deleteText({
         startLine: line,
@@ -808,10 +903,10 @@ export class EditorStateManager {
         endLine: this.cursorLine,
         endColumn: this.cursorColumn,
       });
-      this.setCursor(line, col);
+      this.invalidateLineCache();
+      this.setCursorTrusted(line, col);
     }
 
-    this.resetBlink();
     this.scrollToCursor();
     this.invalidate();
   }
@@ -823,16 +918,16 @@ export class EditorStateManager {
     const normSel = this.getNormalizedSelection();
     if (normSel) {
       this.engine.deleteText(normSel);
-      this.setCursor(normSel.startLine, normSel.startColumn);
-      this.selection = null;
-      this.resetBlink();
+      this.invalidateLineCache();
+      this.setCursorTrusted(normSel.startLine, normSel.startColumn);
       this.scrollToCursor();
       this.invalidate();
       return;
     }
 
-    const lineCount = this.engine.lineCount;
-    const lineLen = this.engine.getLineLength(this.cursorLine);
+    const lineCount = this.lineCount;
+    const lineText = this.getLineCached(this.cursorLine);
+    const lineLen = lineText.length;
 
     if (this.cursorColumn >= lineLen && this.cursorLine >= lineCount) return;
 
@@ -841,9 +936,8 @@ export class EditorStateManager {
 
     if (this.cursorColumn < lineLen) {
       endLine = this.cursorLine;
-      endCol = nextGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
+      endCol = nextGraphemeColumn(lineText, this.cursorColumn);
     } else {
-      // At end of line: merge with next line
       endLine = this.cursorLine + 1;
       endCol = 0;
     }
@@ -854,6 +948,7 @@ export class EditorStateManager {
       endLine,
       endColumn: endCol,
     });
+    this.invalidateLineCache();
 
     this.resetBlink();
     this.scrollToCursor();
@@ -869,10 +964,23 @@ export class EditorStateManager {
 
   // ── Cursor Movement ──────────────────────────────────────────────────────
 
+  /**
+   * Fast-path cursor assignment for positions already validated by C++ edit methods.
+   * Avoids redundant clampPosition() and getLine() JSI round-trips.
+   */
+  private setCursorTrusted(line: number, column: number, keepSelection = false) {
+    this.cursorLine = line;
+    this.cursorColumn = column;
+    if (!keepSelection) {
+      this.selection = null;
+    }
+    this.resetBlink();
+  }
+
   setCursor(line: number, column: number, keepSelection = false) {
     const clamped = this.engine.clampPosition(line, column);
     this.cursorLine = clamped.line;
-    this.cursorColumn = snapColumnInText(this.engine.getLine(clamped.line), clamped.column);
+    this.cursorColumn = snapColumnInText(this.getLineCached(clamped.line), clamped.column);
     if (!keepSelection) {
       this.selection = null;
     }
@@ -882,10 +990,10 @@ export class EditorStateManager {
   moveCursorLeft() {
     this.selection = null;
     if (this.cursorColumn > 0) {
-      this.cursorColumn = prevGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
+      this.cursorColumn = prevGraphemeColumn(this.getLineCached(this.cursorLine), this.cursorColumn);
     } else if (this.cursorLine > 1) {
       this.cursorLine--;
-      this.cursorColumn = this.engine.getLineLength(this.cursorLine);
+      this.cursorColumn = this.getLineCached(this.cursorLine).length;
     }
     this.resetBlink();
     this.scrollToCursor();
@@ -894,10 +1002,11 @@ export class EditorStateManager {
 
   moveCursorRight() {
     this.selection = null;
-    const lineLen = this.engine.getLineLength(this.cursorLine);
+    const lineText = this.getLineCached(this.cursorLine);
+    const lineLen = lineText.length;
     if (this.cursorColumn < lineLen) {
-      this.cursorColumn = nextGraphemeColumn(this.engine.getLine(this.cursorLine), this.cursorColumn);
-    } else if (this.cursorLine < this.engine.lineCount) {
+      this.cursorColumn = nextGraphemeColumn(lineText, this.cursorColumn);
+    } else if (this.cursorLine < this.lineCount) {
       this.cursorLine++;
       this.cursorColumn = 0;
     }
@@ -910,8 +1019,8 @@ export class EditorStateManager {
     this.selection = null;
     if (this.cursorLine > 1) {
       this.cursorLine--;
-      const lineLen = this.engine.getLineLength(this.cursorLine);
-      this.cursorColumn = snapColumnInText(this.engine.getLine(this.cursorLine), Math.min(this.cursorColumn, lineLen));
+      const lineText = this.getLineCached(this.cursorLine);
+      this.cursorColumn = snapColumnInText(lineText, Math.min(this.cursorColumn, lineText.length));
     }
     this.resetBlink();
     this.scrollToCursor();
@@ -920,10 +1029,10 @@ export class EditorStateManager {
 
   moveCursorDown() {
     this.selection = null;
-    if (this.cursorLine < this.engine.lineCount) {
+    if (this.cursorLine < this.lineCount) {
       this.cursorLine++;
-      const lineLen = this.engine.getLineLength(this.cursorLine);
-      this.cursorColumn = snapColumnInText(this.engine.getLine(this.cursorLine), Math.min(this.cursorColumn, lineLen));
+      const lineText = this.getLineCached(this.cursorLine);
+      this.cursorColumn = snapColumnInText(lineText, Math.min(this.cursorColumn, lineText.length));
     }
     this.resetBlink();
     this.scrollToCursor();
@@ -1109,7 +1218,7 @@ export class EditorStateManager {
   /** Total height of all content lines in px. */
   get totalContentHeight(): number {
     return (
-      this.engine.lineCount * EDITOR_THEME.lineHeight +
+      this.lineCount * EDITOR_THEME.lineHeight +
       EDITOR_THEME.contentPaddingTop * 2
     );
   }
@@ -1121,7 +1230,7 @@ export class EditorStateManager {
    */
   getVisibleRange(): VisibleRange {
     const { lineHeight, contentPaddingTop } = EDITOR_THEME;
-    const lineCount = this.engine.lineCount;
+    const lineCount = this.lineCount;
 
     const firstLine = Math.max(
       1,
@@ -1133,9 +1242,9 @@ export class EditorStateManager {
     return { firstLine, lastLine };
   }
 
-  getWindowedRange(overscanLines: number = 25): VisibleRange {
+  getWindowedRange(overscanLines: number = 15): VisibleRange {
     const { lineHeight, contentPaddingTop } = EDITOR_THEME;
-    const lineCount = this.engine.lineCount;
+    const lineCount = this.lineCount;
 
     const firstVisible = Math.max(
       1,
@@ -1161,7 +1270,7 @@ export class EditorStateManager {
   }
 
   getVisualColumn(line: number, column: number): number {
-    const rawLine = this.engine.getLine(line);
+    const rawLine = this.getLineCached(line);
     return columnToCells(rawLine, column);
   }
 
@@ -1504,7 +1613,7 @@ export class EditorStateManager {
       return { docX: 0, docY: 0, visible: false };
     }
 
-    const lineText = this.engine.getLine(this.cursorLine);
+    const lineText = this.getLineCached(this.cursorLine);
     const visualCol = columnToCells(lineText, this.cursorColumn);
     const docX =
       EDITOR_THEME.gutterWidth +

@@ -128,8 +128,15 @@ export function useEditorInput(stateManager: EditorStateManager) {
         return;
       }
 
-      let commonLen = 0;
+      const prevSentinelLen = getSentinelLength(prevStr);
       const minLen = Math.min(prevStr.length, text.length);
+
+      // Fast-path skip over intact sentinel prefix when both strings share the same sentinel
+      let commonLen =
+        textSentinel && textSentinel === prevSentinel && minLen >= prevSentinelLen
+          ? prevSentinelLen
+          : 0;
+
       while (commonLen < minLen && prevStr[commonLen] === text[commonLen]) {
         commonLen++;
       }
@@ -144,8 +151,6 @@ export function useEditorInput(stateManager: EditorStateManager) {
       let backspaceCount = 0;
       let forceReset = false;
 
-      const prevSentinelLen = getSentinelLength(prevStr);
-
       if (commonLen < prevSentinelLen) {
         // The sentinel itself was replaced/tampered with (e.g. user selected all and typed new text)
         backspaceCount = Math.max(0, prevStr.length - prevSentinelLen);
@@ -154,16 +159,17 @@ export function useEditorInput(stateManager: EditorStateManager) {
       } else {
         backspaceCount = prevStr.length - commonLen;
         diffStr = text.substring(commonLen);
-        if (text.length > 500) {
+        if (text.length > 180) {
           forceReset = true;
         }
       }
 
-      // Apply the diff to our engine
-      if (backspaceCount > 0) {
+      // Apply the diff to our engine atomically
+      if (backspaceCount > 0 && diffStr.length > 0) {
+        stateManager.replaceBeforeCursor(backspaceCount, diffStr);
+      } else if (backspaceCount > 0) {
         stateManager.backspace(backspaceCount);
-      }
-      if (diffStr.length > 0) {
+      } else if (diffStr.length > 0) {
         stateManager.insertAtCursor(diffStr);
       }
 
