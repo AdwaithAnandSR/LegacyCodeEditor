@@ -18,6 +18,18 @@ public:
 
     void parseFull();
 
+    void applyEditOnly(
+        size_t startByte,
+        size_t oldEndByte,
+        size_t newEndByte,
+        const CursorPosition& startPos,
+        const CursorPosition& oldEndPos,
+        const CursorPosition& newEndPos
+    );
+
+    void reparseEditedTree();
+    void markDirtyEdit(size_t startByte, size_t oldEndByte, size_t newEndByte, const CursorPosition& startPos, const CursorPosition& oldEndPos, const CursorPosition& newEndPos);
+
     void applyEditAndParse(
         size_t startByte,
         size_t oldEndByte,
@@ -27,7 +39,7 @@ public:
         const CursorPosition& newEndPos
     );
 
-    std::vector<SyntaxToken> getSyntaxTokens(int startLine, int endLine) const;
+    std::vector<SyntaxToken> getSyntaxTokens(int startLine, int endLine);
     const std::vector<std::string>& getInternalErrors() const { return internalErrors_; }
 
 private:
@@ -35,6 +47,9 @@ private:
     TSParser* parser_;
     TSTree* tree_;
     TSQuery* query_;
+    bool hasDirtyTree_ = false;
+    std::vector<std::string> captureNames_;
+    std::vector<int> capturePriorities_;
     std::vector<std::string> internalErrors_;
 
     static const char* readCallback(void* payload, uint32_t byte_index, TSPoint position, uint32_t* bytes_read);

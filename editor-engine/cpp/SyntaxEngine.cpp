@@ -3,7 +3,6 @@
 #include <iostream>
 #include <cstring>
 #include <algorithm>
-#include <unordered_map>
 #include <vector>
 
 namespace margelo::nitro::editorengine {
@@ -24,7 +23,7 @@ SyntaxEngine::SyntaxEngine(const PieceTable* pieceTable) : pieceTable_(pieceTabl
     tree_ = nullptr;
     query_ = nullptr;
     
-        const char* query_source = R"(
+    const char* query_source = R"(
         (identifier) @variable
         (string) @string
         (number) @number
@@ -84,7 +83,6 @@ SyntaxEngine::SyntaxEngine(const PieceTable* pieceTable) : pieceTable_(pieceTabl
     
     if (!query_) {
         internalErrors_.push_back("TSQuery failed to compile. Error type: " + std::to_string(error_type) + " at offset: " + std::to_string(error_offset));
-        // Fallback to a minimal safe query if the complex one fails due to version mismatch
         const char* safe_query = R"(
             (identifier) @variable
             (string) @string
@@ -94,6 +92,18 @@ SyntaxEngine::SyntaxEngine(const PieceTable* pieceTable) : pieceTable_(pieceTabl
         query_ = ts_query_new(tree_sitter_javascript(), safe_query, strlen(safe_query), &error_offset, &error_type);
         if (!query_) {
             internalErrors_.push_back("Safe TSQuery also failed. Error type: " + std::to_string(error_type));
+        }
+    }
+
+    if (query_) {
+        uint32_t count = ts_query_capture_count(query_);
+        captureNames_.resize(count);
+        capturePriorities_.resize(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            uint32_t len = 0;
+            const char* name = ts_query_capture_name_for_id(query_, i, &len);
+            captureNames_[i] = std::string(name, len);
+            capturePriorities_[i] = getCapturePriority(captureNames_[i]);
         }
     }
 }
@@ -135,7 +145,7 @@ void SyntaxEngine::parseFull() {
     tree_ = ts_parser_parse(parser_, nullptr, input);
 }
 
-void SyntaxEngine::applyEditAndParse(
+void SyntaxEngine::markDirtyEdit(
     size_t startByte,
     size_t oldEndByte,
     size_t newEndByte,
@@ -143,12 +153,20 @@ void SyntaxEngine::applyEditAndParse(
     const CursorPosition& oldEndPos,
     const CursorPosition& newEndPos
 ) {
-    if (!tree_) {
-        parseFull();
-        return;
-    }
-    
-    // In tree-sitter, TSPoint column is the BYTE offset from line start
+    applyEditOnly(startByte, oldEndByte, newEndByte, startPos, oldEndPos, newEndPos);
+    hasDirtyTree_ = true;
+}
+
+void SyntaxEngine::applyEditOnly(
+    size_t startByte,
+    size_t oldEndByte,
+    size_t newEndByte,
+    const CursorPosition& startPos,
+    const CursorPosition& oldEndPos,
+    const CursorPosition& newEndPos
+) {
+    if (!tree_) return;
+
     size_t startLineIdx = static_cast<size_t>(std::max(1.0, startPos.line)) - 1;
     size_t oldEndLineIdx = static_cast<size_t>(std::max(1.0, oldEndPos.line)) - 1;
     size_t newEndLineIdx = static_cast<size_t>(std::max(1.0, newEndPos.line)) - 1;
@@ -158,10 +176,10 @@ void SyntaxEngine::applyEditAndParse(
     size_t newEndLineStart = pieceTable_->getLineStartOffset(newEndLineIdx);
 
     TSInputEdit edit;
-    edit.start_byte = startByte;
-    edit.old_end_byte = oldEndByte;
-    edit.new_end_byte = newEndByte;
-    
+    edit.start_byte = static_cast<uint32_t>(startByte);
+    edit.old_end_byte = static_cast<uint32_t>(oldEndByte);
+    edit.new_end_byte = static_cast<uint32_t>(newEndByte);
+
     edit.start_point = {
         static_cast<uint32_t>(startLineIdx),
         static_cast<uint32_t>(startByte >= startLineStart ? startByte - startLineStart : 0)
@@ -174,21 +192,50 @@ void SyntaxEngine::applyEditAndParse(
         static_cast<uint32_t>(newEndLineIdx),
         static_cast<uint32_t>(newEndByte >= newEndLineStart ? newEndByte - newEndLineStart : 0)
     };
-    
+
     ts_tree_edit(tree_, &edit);
-    
+    hasDirtyTree_ = true;
+}
+
+void SyntaxEngine::reparseEditedTree() {
+    if (!hasDirtyTree_) return;
+    hasDirtyTree_ = false;
+    if (!tree_) {
+        parseFull();
+        return;
+    }
+
     TSInput input;
     input.payload = this;
     input.read = readCallback;
     input.encoding = TSInputEncodingUTF8;
-    
+
     TSTree* new_tree = ts_parser_parse(parser_, tree_, input);
     ts_tree_delete(tree_);
     tree_ = new_tree;
 }
 
-std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLine) const {
+void SyntaxEngine::applyEditAndParse(
+    size_t startByte,
+    size_t oldEndByte,
+    size_t newEndByte,
+    const CursorPosition& startPos,
+    const CursorPosition& oldEndPos,
+    const CursorPosition& newEndPos
+) {
+    if (!tree_) {
+        parseFull();
+        return;
+    }
+    applyEditOnly(startByte, oldEndByte, newEndByte, startPos, oldEndPos, newEndPos);
+    reparseEditedTree();
+}
+
+std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLine) {
     std::vector<SyntaxToken> tokens;
+    if (hasDirtyTree_) {
+        reparseEditedTree();
+    }
     if (!tree_ || !query_ || !pieceTable_) return tokens;
     
     TSNode root_node = ts_tree_root_node(tree_);
@@ -207,29 +254,37 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
         double line;
         double startCol;
         double endCol;
-        std::string type;
+        uint32_t captureId;
         int priority;
     };
     std::vector<RawToken> rawTokens;
 
-    // Per-row cache: fetch each line ONCE; byte -> UTF-16 column becomes O(1).
+    // Flat indexed row cache for [minRow..maxRow] instead of std::unordered_map
     struct RowInfo {
-        std::string text;
+        bool initialized = false;
         bool ascii = true;
-        std::vector<uint32_t> map; // byte offset -> utf16 column (non-ASCII rows only)
+        std::string text;
+        std::vector<uint32_t> map;
         double u16len = 0;
         double toCol(uint32_t byteOff) const {
             if (ascii) return static_cast<double>(std::min<size_t>(byteOff, text.size()));
             return static_cast<double>(map[std::min<size_t>(byteOff, text.size())]);
         }
     };
-    std::unordered_map<uint32_t, RowInfo> rows;
+    const uint32_t rowSpan = (maxRow >= minRow) ? (maxRow - minRow + 1) : 1;
+    std::vector<RowInfo> rows(rowSpan);
+
     auto rowInfo = [&](uint32_t r) -> RowInfo& {
-        auto it = rows.find(r);
-        if (it != rows.end()) return it->second;
-        RowInfo& ri = rows[r];
+        RowInfo& ri = rows[r - minRow];
+        if (ri.initialized) return ri;
+        ri.initialized = true;
         ri.text = pieceTable_->getLine(r);
-        for (unsigned char c : ri.text) { if (c >= 0x80) { ri.ascii = false; break; } }
+        for (unsigned char c : ri.text) {
+            if (c >= 0x80) {
+                ri.ascii = false;
+                break;
+            }
+        }
         if (ri.ascii) {
             ri.u16len = static_cast<double>(ri.text.size());
         } else {
@@ -261,12 +316,9 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
             TSPoint start = ts_node_start_point(node);
             TSPoint end = ts_node_end_point(node);
             
-            uint32_t name_len;
-            const char* name = ts_query_capture_name_for_id(query_, capture.index, &name_len);
-            std::string tokenType(name, name_len);
-            int priority = getCapturePriority(tokenType);
+            uint32_t capIdx = capture.index;
+            int priority = (capIdx < capturePriorities_.size()) ? capturePriorities_[capIdx] : 0;
 
-            // Clamp rows to visible range (solves defect R5!)
             uint32_t rStart = std::max(start.row, minRow);
             uint32_t rEnd = std::min(end.row, maxRow);
 
@@ -280,7 +332,7 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
                         static_cast<double>(r + 1),
                         sCol,
                         eCol,
-                        tokenType,
+                        capIdx,
                         priority
                     });
                 }
@@ -290,7 +342,6 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
     
     ts_query_cursor_delete(cursor);
 
-    // Sort tokens by (line, startCol, -priority, -(endCol - startCol))
     std::stable_sort(rawTokens.begin(), rawTokens.end(), [](const RawToken& a, const RawToken& b) {
         if (a.line != b.line) return a.line < b.line;
         if (a.startCol != b.startCol) return a.startCol < b.startCol;
@@ -298,7 +349,6 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
         return (a.endCol - a.startCol) > (b.endCol - b.startCol);
     });
 
-    // Deduplicate overlapping captures on the same line (solves Bug 12)
     tokens.reserve(rawTokens.size());
     double currentLine = -1;
     double lastEndCol = -1;
@@ -309,7 +359,8 @@ std::vector<SyntaxToken> SyntaxEngine::getSyntaxTokens(int startLine, int endLin
             lastEndCol = -1;
         }
         if (rt.startCol >= lastEndCol) {
-            tokens.push_back(SyntaxToken(rt.line, rt.startCol, rt.endCol, rt.type));
+            const std::string& typeStr = (rt.captureId < captureNames_.size()) ? captureNames_[rt.captureId] : "variable";
+            tokens.push_back(SyntaxToken(rt.line, rt.startCol, rt.endCol, typeStr));
             lastEndCol = rt.endCol;
         }
     }
