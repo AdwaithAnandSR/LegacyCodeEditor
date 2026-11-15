@@ -25,6 +25,7 @@ import {
   type SkTypefaceFontProvider,
   type SkParagraph,
   createPicture,
+  TextAlign,
 } from "@shopify/react-native-skia";
 import type { EditorStateManager } from "./EditorStateManager";
 import {
@@ -34,12 +35,12 @@ import {
   lineWidthCells,
   setEmojiCells,
   EMOJI_CELLS_MAX,
+  snapColumnInText,
 } from "./EditorStateManager";
 import { EDITOR_THEME } from "./theme";
 import type { SyntaxToken } from "editor-engine";
 
-// ── Re-export TextAlign since it's in a sub-module ───────────────────────────
-import { TextAlign } from "@shopify/react-native-skia";
+const HORIZONTAL_WINDOW_CAP = 400;
 
 function adjustTokensForTabs(rawLine: string, tokens: SyntaxToken[]): SyntaxToken[] {
   if (!rawLine.includes('\t')) return tokens;
@@ -49,6 +50,25 @@ function adjustTokensForTabs(rawLine: string, tokens: SyntaxToken[]): SyntaxToke
     startColumn: columnToVisual(rawLine, token.startColumn),
     endColumn: columnToVisual(rawLine, token.endColumn),
   }));
+}
+
+/**
+ * Compute a fast 32-bit FNV-1a numeric hash over a line's syntax tokens
+ * so getCachedLineParagraph never allocates arrays or template strings via .map().join().
+ */
+function hashLineTokens(tokens: SyntaxToken[] | undefined, safeStart: number): number {
+  if (!tokens || tokens.length === 0) return 0;
+  let h = 2166136261;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    h = Math.imul(h ^ (t.startColumn - safeStart), 16777619);
+    h = Math.imul(h ^ (t.endColumn - safeStart), 16777619);
+    const type = t.tokenType;
+    const c0 = type.length > 0 ? type.charCodeAt(0) : 0;
+    const c1 = type.length > 1 ? type.charCodeAt(1) : 0;
+    h = Math.imul(h ^ ((c0 << 8) | c1), 16777619);
+  }
+  return h >>> 0;
 }
 
 // ── Cached Paints (allocated once at module load) ────────────────────────────
@@ -69,6 +89,18 @@ const PAINTS = {
   cursor: makePaint(EDITOR_THEME.cursorColor),
   selectionBg: makePaint(EDITOR_THEME.selectionColor),
   handle: makePaint(EDITOR_THEME.handleColor),
+};
+
+// Pre-computed Skia Color values for syntax tokens so Skia.Color() is not called in the inner loop
+const SYNTAX_SK_COLORS: Record<string, ReturnType<typeof Skia.Color>> = {
+  keyword: Skia.Color(EDITOR_THEME.syntaxColors.keyword),
+  function: Skia.Color(EDITOR_THEME.syntaxColors.function),
+  string: Skia.Color(EDITOR_THEME.syntaxColors.string),
+  number: Skia.Color(EDITOR_THEME.syntaxColors.number),
+  comment: Skia.Color(EDITOR_THEME.syntaxColors.comment),
+  property: Skia.Color(EDITOR_THEME.syntaxColors.property),
+  variable: Skia.Color(EDITOR_THEME.syntaxColors.variable),
+  default: Skia.Color(EDITOR_THEME.syntaxColors.default),
 };
 
 // A reusable teardrop shape pointing up, commonly used in mobile OS cursors.
@@ -143,11 +175,13 @@ export function createRendererResources(
 }
 
 // ── Paragraph Caching (Crucial for 120fps scrolling) ────────────────────────
-// Skia ParagraphBuilder is fast, but doing it 40x per frame on the JS thread
-// bottlenecks the gesture event queue, causing "out of control" scrolling lag.
 
 const lineParagraphCache = new Map<string, SkParagraph>();
 const lineNumberCache = new Map<string, SkParagraph>();
+
+// Cached gutter picture state: avoids re-recording 80 line number paragraphs on every keystroke
+let cachedGutterPicture: SkPicture | null = null;
+let cachedGutterKey = "";
 
 function getCachedLineParagraph(
   text: string,
@@ -155,13 +189,12 @@ function getCachedLineParagraph(
   tokens?: SyntaxToken[],
   safeStart: number = 0,
 ): SkParagraph {
-  let cacheKey = text;
-  if (tokens && tokens.length > 0) {
-    cacheKey += "|" + tokens.map(t => `${t.startColumn}-${t.endColumn}-${t.tokenType}`).join(',');
-  }
+  const tokenHash = hashLineTokens(tokens, safeStart);
+  const cacheKey = tokenHash === 0 ? text : `${text}|${tokenHash}`;
 
-  if (lineParagraphCache.has(cacheKey)) {
-    return lineParagraphCache.get(cacheKey)!;
+  const existing = lineParagraphCache.get(cacheKey);
+  if (existing) {
+    return existing;
   }
 
   const builder = Skia.ParagraphBuilder.Make(
@@ -169,7 +202,7 @@ function getCachedLineParagraph(
       textStyle: {
         fontSize: EDITOR_THEME.fontSize,
         fontFamilies: [EDITOR_THEME.fontFamily],
-        color: Skia.Color(EDITOR_THEME.textColor),
+        color: SYNTAX_SK_COLORS.default,
       },
     },
     fontProvider,
@@ -188,13 +221,21 @@ function getCachedLineParagraph(
       if (tEnd <= tStart || tStart >= text.length) continue;
       
       if (tStart > currentIdx) {
-        builder.pushStyle({ fontSize: EDITOR_THEME.fontSize, fontFamilies: [EDITOR_THEME.fontFamily], color: Skia.Color(EDITOR_THEME.syntaxColors.default) });
+        builder.pushStyle({
+          fontSize: EDITOR_THEME.fontSize,
+          fontFamilies: [EDITOR_THEME.fontFamily],
+          color: SYNTAX_SK_COLORS.default,
+        });
         builder.addText(text.substring(currentIdx, tStart));
         builder.pop();
       }
       
-      const colorHex = EDITOR_THEME.syntaxColors[token.tokenType as keyof typeof EDITOR_THEME.syntaxColors] || EDITOR_THEME.syntaxColors.default;
-      builder.pushStyle({ fontSize: EDITOR_THEME.fontSize, fontFamilies: [EDITOR_THEME.fontFamily], color: Skia.Color(colorHex) });
+      const skColor = SYNTAX_SK_COLORS[token.tokenType] ?? SYNTAX_SK_COLORS.default;
+      builder.pushStyle({
+        fontSize: EDITOR_THEME.fontSize,
+        fontFamilies: [EDITOR_THEME.fontFamily],
+        color: skColor,
+      });
       builder.addText(text.substring(tStart, tEnd));
       builder.pop();
       
@@ -202,7 +243,11 @@ function getCachedLineParagraph(
     }
     
     if (currentIdx < text.length) {
-      builder.pushStyle({ fontSize: EDITOR_THEME.fontSize, fontFamilies: [EDITOR_THEME.fontFamily], color: Skia.Color(EDITOR_THEME.syntaxColors.default) });
+      builder.pushStyle({
+        fontSize: EDITOR_THEME.fontSize,
+        fontFamilies: [EDITOR_THEME.fontFamily],
+        color: SYNTAX_SK_COLORS.default,
+      });
       builder.addText(text.substring(currentIdx));
       builder.pop();
     }
@@ -212,7 +257,7 @@ function getCachedLineParagraph(
   para.layout(1e6); // no wrapping
   
   lineParagraphCache.set(cacheKey, para);
-  if (lineParagraphCache.size > 500) {
+  if (lineParagraphCache.size > 600) {
     const oldestKey = lineParagraphCache.keys().next().value;
     if (oldestKey !== undefined) lineParagraphCache.delete(oldestKey);
   }
@@ -225,8 +270,9 @@ function getCachedLineNumberParagraph(
   fontProvider: SkTypefaceFontProvider,
 ): SkParagraph {
   const cacheKey = `${lineNum}-${isActive}`;
-  if (lineNumberCache.has(cacheKey)) {
-    return lineNumberCache.get(cacheKey)!;
+  const existing = lineNumberCache.get(cacheKey);
+  if (existing) {
+    return existing;
   }
   const para = Skia.ParagraphBuilder.Make(
     {
@@ -248,18 +294,19 @@ function getCachedLineNumberParagraph(
   para.layout(EDITOR_THEME.gutterWidth - EDITOR_THEME.gutterPaddingRight);
   
   lineNumberCache.set(cacheKey, para);
-  if (lineNumberCache.size > 500) {
+  if (lineNumberCache.size > 600) {
     const oldestKey = lineNumberCache.keys().next().value;
-    if (oldestKey !== undefined) lineNumberCache.delete(oldestKey);
+    if (oldestKey !== undefined) lineParagraphCache.delete(oldestKey);
   }
   return para;
 }
 
-// ── Main Draw Functions (Windowed Absolute Coordinates) ─────────────────────
+// ── Main Draw Functions (Window-Local Y Coordinates) ────────────────────────
 
 /**
  * Draw editor content (background, current line, selection, text, handles)
- * at absolute document coordinates into contentPicture.
+ * in window-local Y coordinates (relative to windowTopY) so the SkPicture height
+ * stays bounded to the ~80-line window regardless of how deep the user scrolls.
  */
 function drawEditorContentToCanvas(
   canvas: SkCanvas,
@@ -268,6 +315,8 @@ function drawEditorContentToCanvas(
   firstLine: number,
   lastLine: number,
   documentWidth: number,
+  windowTopY: number,
+  windowHeight: number,
 ) {
   const { fontProvider, charWidth } = resources;
   const {
@@ -277,8 +326,11 @@ function drawEditorContentToCanvas(
     cursorWidth,
   } = EDITOR_THEME;
 
-  // 1. Clear background
-  canvas.drawPaint(PAINTS.background);
+  // 1. Clear only the bounded window rect
+  canvas.drawRect(
+    Skia.XYWHRect(0, 0, documentWidth, windowHeight),
+    PAINTS.background,
+  );
 
   // 2. Query syntax tokens for the windowed line range
   const syntaxTokens = state.engine.getSyntaxTokens(firstLine, lastLine);
@@ -288,18 +340,23 @@ function drawEditorContentToCanvas(
     tokensByLine[token.line].push(token);
   }
 
-  // Batch-fetch all visible lines in one Nitro C++ call to eliminate 50-150 JSI round-trips
+  // Batch-fetch all visible lines in one Nitro C++ call
   const rawLines = state.engine.getLines(firstLine, lastLine);
   const getRawLine = (lineNum: number): string => {
     const idx = lineNum - firstLine;
     return (idx >= 0 && idx < rawLines.length) ? rawLines[idx] : state.engine.getLine(lineNum);
   };
 
+  // Seed stateManager's single-line cache with the cursor line from our batch fetch
+  if (state.cursorLine >= firstLine && state.cursorLine <= lastLine) {
+    state.primeCursorLineCache(state.cursorLine, getRawLine(state.cursorLine));
+  }
+
   // 3. Current line highlight
   if (state.cursorLine >= firstLine && state.cursorLine <= lastLine) {
-    const cursorLineY = state.getLineY(state.cursorLine);
+    const cursorLineLocalY = state.getLineY(state.cursorLine) - windowTopY;
     canvas.drawRect(
-      Skia.XYWHRect(gutterWidth, cursorLineY, documentWidth, lineHeight),
+      Skia.XYWHRect(gutterWidth, cursorLineLocalY, documentWidth, lineHeight),
       PAINTS.currentLineHighlight,
     );
   }
@@ -325,7 +382,7 @@ function drawEditorContentToCanvas(
     const selLastLine = Math.min(lastLine, eLine);
 
     for (let lineNum = selFirstLine; lineNum <= selLastLine; lineNum++) {
-      const y = state.getLineY(lineNum);
+      const localY = state.getLineY(lineNum) - windowTopY;
       const isFirst = lineNum === sLine;
       const isLast = lineNum === eLine;
 
@@ -340,23 +397,25 @@ function drawEditorContentToCanvas(
         const width = (visualColEnd - visualColStart) * charWidth;
 
         canvas.drawRect(
-          Skia.XYWHRect(textXStart, y, width, lineHeight),
+          Skia.XYWHRect(textXStart, localY, width, lineHeight),
           PAINTS.selectionBg,
         );
       }
     }
   }
 
-  // 5. Visible lines text
+  // 5. Visible lines text (with horizontal virtualization for ultra-long lines)
   let maxLenGrew = false;
+  const scrollX = state.scrollOffset.x;
+  const approxStartCol = charWidth > 0 ? Math.max(0, Math.floor(scrollX / charWidth) - 40) : 0;
+
   for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
-    const y = state.getLineY(lineNum);
-    const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
+    const localY = state.getLineY(lineNum) - windowTopY;
+    const textY = localY + (lineHeight - EDITOR_THEME.fontSize) / 2;
 
     const rawLine = getRawLine(lineNum);
     const lineText = expandTabs(rawLine);
 
-    // lineText is already tab-expanded. Cheap upper bound first so normal lines skip the work.
     if (lineText.length * EMOJI_CELLS_MAX > state.maxRenderedLineLength) {
       const lineCells = lineWidthCells(lineText);
       if (lineCells > state.maxRenderedLineLength) {
@@ -370,8 +429,23 @@ function drawEditorContentToCanvas(
       lineTokens = adjustTokensForTabs(rawLine, lineTokens);
     }
 
-    const para = getCachedLineParagraph(lineText, fontProvider, lineTokens, 0);
-    const textX = gutterWidth + contentPaddingLeft;
+    let renderText = lineText;
+    let safeStart = 0;
+    let textX = gutterWidth + contentPaddingLeft;
+
+    // Horizontal virtualization for long lines (> HORIZONTAL_WINDOW_CAP chars)
+    if (lineText.length > HORIZONTAL_WINDOW_CAP && charWidth > 0) {
+      safeStart = snapColumnInText(lineText, Math.min(approxStartCol, lineText.length));
+      const safeEnd = snapColumnInText(
+        lineText,
+        Math.min(lineText.length, safeStart + HORIZONTAL_WINDOW_CAP),
+      );
+      renderText = lineText.substring(safeStart, safeEnd);
+      const startCells = columnToCells(lineText, safeStart);
+      textX += startCells * charWidth;
+    }
+
+    const para = getCachedLineParagraph(renderText, fontProvider, lineTokens, safeStart);
     para.paint(canvas, textX, textY);
   }
   if (maxLenGrew) state.updateMaxScrollShared();
@@ -388,7 +462,7 @@ function drawEditorContentToCanvas(
       gutterWidth +
       contentPaddingLeft +
       columnToCells(getRawLine(state.cursorLine), state.cursorColumn) * charWidth;
-    const cy = state.getLineY(state.cursorLine);
+    const cy = state.getLineY(state.cursorLine) - windowTopY;
 
     canvas.drawRect(
       Skia.XYWHRect(cx, cy, cursorWidth, lineHeight),
@@ -409,7 +483,7 @@ function drawEditorContentToCanvas(
         const rawLine = getRawLine(line);
         const visualCol = columnToCells(rawLine, col);
         const x = gutterWidth + contentPaddingLeft + visualCol * charWidth;
-        const y = state.getLineY(line);
+        const y = state.getLineY(line) - windowTopY;
 
         canvas.drawRect(Skia.XYWHRect(x, y, cursorWidth, lineHeight), PAINTS.handle);
         canvas.save();
@@ -425,7 +499,7 @@ function drawEditorContentToCanvas(
 }
 
 /**
- * Draw line numbers in document coordinates into gutterPicture.
+ * Draw line numbers in window-local Y coordinates into gutterPicture.
  */
 function drawEditorGutterToCanvas(
   canvas: SkCanvas,
@@ -433,13 +507,14 @@ function drawEditorGutterToCanvas(
   resources: SkiaRendererResources,
   firstLine: number,
   lastLine: number,
+  windowTopY: number,
 ) {
   const { fontProvider } = resources;
   const { lineHeight } = EDITOR_THEME;
 
   for (let lineNum = firstLine; lineNum <= lastLine; lineNum++) {
-    const y = state.getLineY(lineNum);
-    const textY = y + (lineHeight - EDITOR_THEME.fontSize) / 2;
+    const localY = state.getLineY(lineNum) - windowTopY;
+    const textY = localY + (lineHeight - EDITOR_THEME.fontSize) / 2;
     const lineNumPara = getCachedLineNumberParagraph(
       lineNum,
       lineNum === state.cursorLine,
@@ -454,11 +529,12 @@ function drawEditorGutterToCanvas(
 export interface EditorPictures {
   contentPicture: SkPicture;
   gutterPicture: SkPicture;
+  windowTopY: number;
 }
 
 /**
  * Record contentPicture and gutterPicture for a windowed range of lines
- * at absolute document coordinates.
+ * at window-local Y coordinates (0 .. windowHeight).
  */
 export function createEditorPictures(
   state: EditorStateManager,
@@ -468,24 +544,40 @@ export function createEditorPictures(
   firstLine: number,
   lastLine: number,
 ): EditorPictures {
+  const windowTopY = firstLine <= 1 ? 0 : state.getLineY(firstLine);
+  const windowBottomY = state.getLineY(lastLine + 2) + 32; // +32px for bottom selection teardrop handles
+  const windowHeight = Math.max(canvasHeight, windowBottomY - windowTopY);
   const documentWidth = Math.max(canvasWidth, state.maxScrollX + canvasWidth + 200);
-  const documentHeight = Math.max(canvasHeight, state.getLineY(lastLine + 2));
 
   const contentPicture = createPicture(
     (canvas) => {
-      drawEditorContentToCanvas(canvas, state, resources, firstLine, lastLine, documentWidth);
+      drawEditorContentToCanvas(
+        canvas,
+        state,
+        resources,
+        firstLine,
+        lastLine,
+        documentWidth,
+        windowTopY,
+        windowHeight,
+      );
     },
-    { width: documentWidth, height: documentHeight },
+    { width: documentWidth, height: windowHeight },
   );
 
-  const gutterPicture = createPicture(
-    (canvas) => {
-      drawEditorGutterToCanvas(canvas, state, resources, firstLine, lastLine);
-    },
-    { width: EDITOR_THEME.gutterWidth, height: documentHeight },
-  );
+  // Memoize gutterPicture whenever (firstLine, lastLine, cursorLine, windowHeight) are unchanged
+  const gutterKey = `${firstLine}:${lastLine}:${state.cursorLine}:${windowHeight}`;
+  if (!cachedGutterPicture || cachedGutterKey !== gutterKey) {
+    cachedGutterKey = gutterKey;
+    cachedGutterPicture = createPicture(
+      (canvas) => {
+        drawEditorGutterToCanvas(canvas, state, resources, firstLine, lastLine, windowTopY);
+      },
+      { width: EDITOR_THEME.gutterWidth, height: windowHeight },
+    );
+  }
 
-  return { contentPicture, gutterPicture };
+  return { contentPicture, gutterPicture: cachedGutterPicture, windowTopY };
 }
 
 /**

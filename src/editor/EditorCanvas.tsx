@@ -140,6 +140,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
 
   const contentPictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
   const gutterPictureSV = useSharedValue<SkPicture>(INITIAL_PICTURE);
+  const windowTopYSV = useSharedValue(0);
 
   const cursorDocX = useSharedValue(0);
   const cursorDocY = useSharedValue(0);
@@ -149,14 +150,14 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
 
   const [isAppActive, setIsAppActive] = useState(true);
 
-  // UI-thread GPU transforms
+  // UI-thread GPU transforms (window-local picture offset by windowTopYSV - scrollY)
   const contentTransform = useDerivedValue(() => [
     { translateX: -scrollX.value },
-    { translateY: -scrollY.value },
+    { translateY: windowTopYSV.value - scrollY.value },
   ]);
 
   const gutterTransform = useDerivedValue(() => [
-    { translateY: -scrollY.value },
+    { translateY: windowTopYSV.value - scrollY.value },
   ]);
 
   const contentClipRect = useMemo(
@@ -206,7 +207,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       isDrawScheduled = false;
       const size = canvasSizeRef.current;
       if (resources && size.width > 0 && size.height > 0) {
-        const windowRange = stateManager.getWindowedRange(25);
+        const windowRange = stateManager.getWindowedRange(15);
         const pictures = createEditorPictures(
           stateManager,
           resources,
@@ -215,6 +216,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
           windowRange.firstLine,
           windowRange.lastLine,
         );
+        windowTopYSV.value = pictures.windowTopY;
         contentPictureSV.value = pictures.contentPicture;
         gutterPictureSV.value = pictures.gutterPicture;
         lastRecordedFirstLine.value = Math.max(
@@ -225,7 +227,6 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
           ) + 1
         );
       }
-      syncCursor();
     };
 
     const cleanup = stateManager.setInvalidate(() => {
@@ -236,7 +237,6 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
     });
 
     stateManager.setOnCursorActivity(() => {
-      syncCursor();
       cursorActivity.value = cursorActivity.value + 1;
     });
 
@@ -267,7 +267,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
       isShiftPending.current = false;
       const size = canvasSizeRef.current;
       if (resources && size.width > 0 && size.height > 0) {
-        const windowRange = stateManager.getWindowedRange(25);
+        const windowRange = stateManager.getWindowedRange(15);
         const pictures = createEditorPictures(
           stateManager,
           resources,
@@ -276,6 +276,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
           windowRange.firstLine,
           windowRange.lastLine,
         );
+        windowTopYSV.value = pictures.windowTopY;
         contentPictureSV.value = pictures.contentPicture;
         gutterPictureSV.value = pictures.gutterPicture;
       }
@@ -293,7 +294,7 @@ function EditorCanvasInner({ stateManager }: { stateManager: EditorStateManager 
     },
     (currentFirstLine) => {
       "worklet";
-      if (Math.abs(currentFirstLine - lastRecordedFirstLine.value) >= 15) {
+      if (Math.abs(currentFirstLine - lastRecordedFirstLine.value) >= 10) {
         // eslint-disable-next-line react-hooks/immutability
         lastRecordedFirstLine.value = currentFirstLine;
         runOnJS(triggerWindowShift)();
